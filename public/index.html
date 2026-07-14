@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Поиск арбитражных рецептов масел и эссенций Path of Exile по данным poe.ninja">
+  <meta name="description" content="Поиск арбитражных рецептов масел, эссенций и карточек Path of Exile по данным poe.ninja">
   <title>PoE Arbitrage Dashboard</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -12,7 +12,7 @@
     <div>
       <p class="eyebrow">PATH OF EXILE 1 · ECONOMY LAB</p>
       <h1>Arbitrage Dashboard</h1>
-      <p class="subtitle">Ищет потенциально выгодные рецепты 3 → 1, учитывает запас на покупку и продажу, бюджет и устойчивость цены.</p>
+      <p class="subtitle">Ищет потенциально выгодные рецепты масел, эссенций и комплекты карточек с фиксированной валютной наградой.</p>
     </div>
     <div class="header-actions">
       <button id="exportButton" class="secondary-button" type="button">Экспорт CSV</button>
@@ -95,6 +95,7 @@
         <button class="tab active" type="button" role="tab" data-category="all" aria-selected="true">Все</button>
         <button class="tab" type="button" role="tab" data-category="oil" aria-selected="false">Масла</button>
         <button class="tab" type="button" role="tab" data-category="essence" aria-selected="false">Эссенции</button>
+        <button class="tab" type="button" role="tab" data-category="card" aria-selected="false">Карточки</button>
       </div>
 
       <div class="table-toolbar">
@@ -145,7 +146,7 @@
     </section>
 
     <section class="notice">
-      <strong>Как читать результат:</strong> расчёт использует агрегированную цену poe.ninja. «Стабильность» — сколько последовательных сохранённых замеров сделка оставалась прибыльной. «На бюджет» — теоретический результат без проверки доступного объёма товара.
+      <strong>Как читать результат:</strong> расчёт использует агрегированную цену poe.ninja. На первом этапе карточки ограничены 43 наборами с конкретной валютой и фиксированным количеством. «Стабильность» — сколько последовательных сохранённых замеров сделка оставалась прибыльной. «На бюджет» — теоретический результат без проверки доступного объёма товара.
     </section>
   </main>
 

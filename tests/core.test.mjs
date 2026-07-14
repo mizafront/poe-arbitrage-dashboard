@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildEssencePairs,
+  buildFixedCurrencyCardPairs,
   buildOilPairs,
   calculateOpportunity,
   normalizeExchange
 } from "../public/core.js";
+import { FIXED_CURRENCY_CARD_CATALOG } from "../public/cards.js";
 
 test("normalizes current exchange payload", () => {
   const payload = {
@@ -69,4 +71,56 @@ test("groups essence families by tier", () => {
   const pairs = buildEssencePairs(items);
   assert.equal(pairs.length, 3);
   assert.equal(pairs[0].category, "essence");
+});
+
+
+test("builds fixed currency card pair with stack and reward quantities", () => {
+  const cards = [
+    { name: "The Fortunate", price: 18, volume: 120, icon: "" }
+  ];
+  const currencies = [
+    { name: "Divine Orb", price: 150, volume: 3000, icon: "" }
+  ];
+  const catalog = [
+    { name: "The Fortunate", stackSize: 12, rewardName: "Divine Orb", rewardQuantity: 2 }
+  ];
+  const pairs = buildFixedCurrencyCardPairs(cards, currencies, catalog);
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].inputCategory, "card");
+  assert.equal(pairs[0].outputCategory, "currency");
+  assert.equal(pairs[0].ratio, 12);
+  assert.equal(pairs[0].outputQuantity, 2);
+
+  const result = calculateOpportunity(pairs[0], {
+    buyPremium: 5,
+    sellDiscount: 10,
+    budget: 500
+  });
+  assert.ok(Math.abs(result.cost - 226.8) < 1e-9);
+  assert.ok(Math.abs(result.sale - 270) < 1e-9);
+  assert.ok(Math.abs(result.profit - 43.2) < 1e-9);
+  assert.equal(result.maxOperations, 2);
+});
+
+test("skips cards or rewards missing from market data", () => {
+  const pairs = buildFixedCurrencyCardPairs(
+    [{ name: "Rain of Chaos", price: 0.2, volume: 10, icon: "" }],
+    [],
+    [{ name: "Rain of Chaos", stackSize: 8, rewardName: "Chaos Orb", rewardQuantity: 1 }]
+  );
+  assert.equal(pairs.length, 0);
+});
+
+
+test("fixed currency card catalog is deterministic and unique", () => {
+  assert.equal(FIXED_CURRENCY_CARD_CATALOG.length, 43);
+  const names = new Set();
+  for (const entry of FIXED_CURRENCY_CARD_CATALOG) {
+    assert.ok(entry.name);
+    assert.ok(entry.rewardName);
+    assert.ok(Number.isInteger(entry.stackSize) && entry.stackSize > 0);
+    assert.ok(Number.isInteger(entry.rewardQuantity) && entry.rewardQuantity > 0);
+    assert.equal(names.has(entry.name), false);
+    names.add(entry.name);
+  }
 });

@@ -169,6 +169,33 @@ export function buildEssencePairs(items) {
   return pairs;
 }
 
+export function buildFixedCurrencyCardPairs(cardItems, currencyItems, catalog) {
+  const cardsByName = new Map(cardItems.map((item) => [item.name, item]));
+  const currencyByName = new Map(currencyItems.map((item) => [item.name, item]));
+  const pairs = [];
+
+  for (const entry of catalog) {
+    const input = cardsByName.get(entry.name);
+    const output = currencyByName.get(entry.rewardName);
+    const stackSize = Number(entry.stackSize);
+    const rewardQuantity = Number(entry.rewardQuantity);
+    if (!input || !output || !Number.isFinite(stackSize) || stackSize <= 0) continue;
+    if (!Number.isFinite(rewardQuantity) || rewardQuantity <= 0) continue;
+
+    pairs.push({
+      category: "card",
+      inputCategory: "card",
+      outputCategory: "currency",
+      input,
+      output,
+      ratio: stackSize,
+      outputQuantity: rewardQuantity
+    });
+  }
+
+  return pairs;
+}
+
 export function calculateOpportunity(pair, settings = {}) {
   const ratio = Number.isFinite(pair.ratio) ? pair.ratio : 3;
   const buyPremium = Math.max(0, Number(settings.buyPremium ?? 0)) / 100;
@@ -176,7 +203,8 @@ export function calculateOpportunity(pair, settings = {}) {
   const budget = Math.max(0, Number(settings.budget ?? 0));
 
   const theoreticalCost = pair.input.price * ratio;
-  const theoreticalSale = pair.output.price;
+  const outputQuantity = Number.isFinite(pair.outputQuantity) ? pair.outputQuantity : 1;
+  const theoreticalSale = pair.output.price * outputQuantity;
   const cost = theoreticalCost * (1 + buyPremium);
   const sale = theoreticalSale * (1 - sellDiscount);
   const profit = sale - cost;

@@ -2,11 +2,13 @@
 
 import {
   buildEssencePairs,
+  buildFixedCurrencyCardPairs,
   buildOilPairs,
   calculateOpportunity,
   normalizeExchange,
   recipeKey
 } from "./core.js";
+import { FIXED_CURRENCY_CARD_CATALOG } from "./cards.js";
 
 const SETTINGS_KEY = "poe-arbitrage-settings:v2";
 const HISTORY_PREFIX = "poe-arbitrage-history:v2:";
@@ -158,8 +160,10 @@ function appendSnapshot(league, snapshot) {
 }
 
 function opportunityAtSnapshot(pair, snapshot, currentSettings) {
-  const input = snapshot?.prices?.[priceKey(pair.category, pair.input.name)];
-  const output = snapshot?.prices?.[priceKey(pair.category, pair.output.name)];
+  const inputCategory = pair.inputCategory ?? pair.category;
+  const outputCategory = pair.outputCategory ?? pair.category;
+  const input = snapshot?.prices?.[priceKey(inputCategory, pair.input.name)];
+  const output = snapshot?.prices?.[priceKey(outputCategory, pair.output.name)];
   if (!input || !output) return null;
   return calculateOpportunity({
     ...pair,
@@ -297,7 +301,11 @@ function render() {
   }
 
   elements.body.innerHTML = rows.map((row) => {
-    const label = row.category === "oil" ? "Масло" : "Эссенция";
+    const label = row.category === "oil"
+      ? "Масло"
+      : row.category === "essence"
+        ? "Эссенция"
+        : "Карточка";
     const profitClass = row.profit >= 0 ? "profit" : "loss";
     const budgetText = row.maxOperations > 0
       ? `${formatChaos(row.budgetProfit)}<small class="item-price">${row.maxOperations} оп.</small>`
@@ -306,7 +314,7 @@ function render() {
       <tr title="Теоретическая прибыль без запаса: ${formatChaos(row.theoreticalProfit)}">
         <td><span class="category-badge">${label}</span></td>
         <td>${itemCell(row.input, row.ratio)}</td>
-        <td>${itemCell(row.output)}</td>
+        <td>${itemCell(row.output, row.outputQuantity ?? 1)}</td>
         <td class="number">${formatChaos(row.cost)}</td>
         <td class="number">${formatChaos(row.sale)}</td>
         <td class="number ${profitClass}">${formatChaos(row.profit)}</td>
@@ -329,18 +337,33 @@ async function fetchJson(url) {
 }
 
 function demoPayload(type) {
-  const names = type === "Oil"
-    ? ["Clear Oil", "Sepia Oil", "Amber Oil", "Verdant Oil", "Teal Oil", "Azure Oil", "Indigo Oil", "Violet Oil", "Crimson Oil", "Black Oil", "Opalescent Oil", "Silver Oil", "Golden Oil"]
-    : [
-        "Whispering Essence of Greed", "Muttering Essence of Greed", "Weeping Essence of Greed", "Wailing Essence of Greed", "Screaming Essence of Greed", "Shrieking Essence of Greed", "Deafening Essence of Greed",
-        "Whispering Essence of Wrath", "Muttering Essence of Wrath", "Weeping Essence of Wrath", "Wailing Essence of Wrath", "Screaming Essence of Wrath", "Shrieking Essence of Wrath", "Deafening Essence of Wrath"
-      ];
+  const demoItems = {
+    Oil: [
+      ["Clear Oil", 0.12, 300], ["Sepia Oil", 0.35, 292], ["Amber Oil", 0.75, 284],
+      ["Verdant Oil", 1.8, 276], ["Teal Oil", 4.9, 268], ["Azure Oil", 14.2, 260],
+      ["Indigo Oil", 39, 252], ["Violet Oil", 115, 244]
+    ],
+    Essence: [
+      ["Whispering Essence of Greed", 0.8, 300], ["Muttering Essence of Greed", 2.8, 292],
+      ["Weeping Essence of Greed", 9.2, 284], ["Wailing Essence of Greed", 31, 276],
+      ["Screaming Essence of Greed", 3, 260], ["Shrieking Essence of Greed", 11.5, 250],
+      ["Deafening Essence of Greed", 39, 240], ["Screaming Essence of Wrath", 4, 230],
+      ["Shrieking Essence of Wrath", 15, 220], ["Deafening Essence of Wrath", 52, 210]
+    ],
+    DivinationCard: [
+      ["The Wrath", 0.82, 190], ["The Fortunate", 18, 130], ["Rain of Chaos", 0.18, 400],
+      ["The Hoarder", 3.2, 170], ["Lucky Connections", 1.1, 90], ["The Seeker", 9, 55]
+    ],
+    Currency: [
+      ["Chaos Orb", 1, 10000], ["Divine Orb", 150, 3400], ["Exalted Orb", 12, 3100],
+      ["Orb of Fusing", 0.24, 7000], ["Orb of Annulment", 28, 900]
+    ]
+  };
   const items = {};
-  const lines = names.map((name, index) => {
+  const lines = (demoItems[type] ?? []).map(([name, price, volume], index) => {
     const id = `${type.toLowerCase()}-${index}`;
     items[id] = { id, name, icon: "" };
-    const base = type === "Oil" ? Math.pow(1.55, index) * 0.12 : Math.pow(1.47, index % 7) * (index < 7 ? 0.8 : 0.95);
-    return { id, primaryValue: Number(base.toFixed(3)), volumePrimaryValue: 300 - index * 8 };
+    return { id, primaryValue: price, volumePrimaryValue: volume };
   });
   return { core: { primary: "chaos", items }, lines };
 }
@@ -387,33 +410,40 @@ async function refreshData({ silent = false } = {}) {
   elements.refresh.disabled = true;
   if (!silent) {
     elements.status.className = "status";
-    elements.status.textContent = "Загружаю цены масел и эссенций…";
+    elements.status.textContent = "Загружаю масла, эссенции, карточки и валюту…";
   }
 
   try {
-    const [oilPayload, essencePayload] = DEMO_MODE
-      ? [demoPayload("Oil"), demoPayload("Essence")]
+    const [oilPayload, essencePayload, cardPayload, currencyPayload] = DEMO_MODE
+      ? [demoPayload("Oil"), demoPayload("Essence"), demoPayload("DivinationCard"), demoPayload("Currency")]
       : await Promise.all([
           fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=Oil`),
-          fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=Essence`)
+          fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=Essence`),
+          fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=DivinationCard`),
+          fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=Currency`)
         ]);
 
     const oilsNormalized = normalizeExchange(oilPayload);
     const essencesNormalized = normalizeExchange(essencePayload);
+    const cardsNormalized = normalizeExchange(cardPayload);
+    const currencyNormalized = normalizeExchange(currencyPayload);
     const oils = oilsNormalized.items;
     const essences = essencesNormalized.items;
-    state.sourcePrimary = oilsNormalized.primaryName || essencesNormalized.primaryName || "Chaos Orb";
-    state.pairs = [...buildOilPairs(oils), ...buildEssencePairs(essences)];
+    const cards = cardsNormalized.items;
+    const currencies = currencyNormalized.items;
+    state.sourcePrimary = oilsNormalized.primaryName || essencesNormalized.primaryName || cardsNormalized.primaryName || currencyNormalized.primaryName || "Chaos Orb";
+    const cardPairs = buildFixedCurrencyCardPairs(cards, currencies, FIXED_CURRENCY_CARD_CATALOG);
+    state.pairs = [...buildOilPairs(oils), ...buildEssencePairs(essences), ...cardPairs];
 
     state.history = loadHistory(league);
-    appendSnapshot(league, createSnapshot({ oil: oils, essence: essences }));
+    appendSnapshot(league, createSnapshot({ oil: oils, essence: essences, card: cards, currency: currencies }));
     recalculateRows();
     saveSettings();
 
     const now = new Date();
     elements.updated.textContent = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
     elements.status.className = "status success";
-    elements.status.textContent = `${DEMO_MODE ? "Демо: " : ""}получено ${oils.length} масел и ${essences.length} эссенций. Валюта расчёта: ${state.sourcePrimary}. История: ${state.history.length} замеров.`;
+    elements.status.textContent = `${DEMO_MODE ? "Демо: " : ""}получено ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек и ${currencies.length} валют. Фиксированных карточных цепочек: ${cardPairs.length}. Валюта расчёта: ${state.sourcePrimary}. История: ${state.history.length} замеров.`;
     render();
     scheduleAutoRefresh();
   } catch (error) {
@@ -468,7 +498,7 @@ function exportCsv() {
   const data = rows.map((row) => [
     row.category,
     `${row.ratio} x ${row.input.name}`,
-    row.output.name,
+    `${row.outputQuantity ?? 1} x ${row.output.name}`,
     row.cost,
     row.sale,
     row.profit,
