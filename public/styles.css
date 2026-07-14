@@ -339,3 +339,101 @@ footer {
   .summary-grid { grid-template-columns: 1fr; }
   .primary-button, .secondary-button { flex: 1 1 auto; }
 }
+
+.status.warning { color: var(--accent-strong); }
+
+.control-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+
+.checkbox-control {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-content: center;
+  gap: 4px 9px;
+  min-height: 64px;
+}
+
+.checkbox-control input {
+  width: 17px;
+  height: 17px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+
+.checkbox-control .control-hint {
+  grid-column: 2;
+  margin: 0;
+}
+
+.source-prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.item-change {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.68rem;
+}
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+
+.source-one { color: var(--muted); }
+
+.liquidity-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 90px;
+}
+
+.liquidity-cell strong { font-size: 0.82rem; }
+.liquidity-cell small { color: var(--muted); font-size: 0.66rem; }
+
+.sparkline-wrap {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  min-width: 86px;
+}
+
+.sparkline-wrap small {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.sparkline {
+  width: 82px;
+  height: 30px;
+  overflow: visible;
+}
+
+.sparkline polyline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark-up { color: var(--positive); }
+.spark-down { color: var(--negative); }
+.spark-flat { color: var(--neutral); }
+
+table { min-width: 1780px; }

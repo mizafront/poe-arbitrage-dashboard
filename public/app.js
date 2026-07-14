@@ -5,13 +5,15 @@ import {
   buildFixedCurrencyCardPairs,
   buildOilPairs,
   calculateOpportunity,
+  mergeMarketSources,
   normalizeExchange,
+  normalizePoeWatch,
   recipeKey
 } from "./core.js";
 import { FIXED_CURRENCY_CARD_CATALOG } from "./cards.js";
 
-const SETTINGS_KEY = "poe-arbitrage-settings:v2";
-const HISTORY_PREFIX = "poe-arbitrage-history:v2:";
+const SETTINGS_KEY = "poe-arbitrage-settings:v3";
+const HISTORY_PREFIX = "poe-arbitrage-history:v3:";
 const MAX_HISTORY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_HISTORY_SNAPSHOTS = 600;
 const DEMO_MODE = new URLSearchParams(window.location.search).get("demo") === "1";
@@ -22,6 +24,9 @@ const state = {
   history: [],
   activeCategory: "all",
   sourcePrimary: "Chaos Orb",
+  watchAvailable: false,
+  watchItemCount: 0,
+  watchMatchCount: 0,
   autoTimer: null,
   countdownTimer: null,
   nextRefreshAt: 0,
@@ -35,6 +40,8 @@ const elements = {
   minProfit: document.querySelector("#minProfit"),
   minRoi: document.querySelector("#minRoi"),
   minStability: document.querySelector("#minStability"),
+  maxDiscrepancy: document.querySelector("#maxDiscrepancy"),
+  useSecondSource: document.querySelector("#useSecondSource"),
   buyPremium: document.querySelector("#buyPremium"),
   sellDiscount: document.querySelector("#sellDiscount"),
   autoRefresh: document.querySelector("#autoRefresh"),
@@ -49,12 +56,13 @@ const elements = {
   bestProfit: document.querySelector("#bestProfit"),
   bestBudgetProfit: document.querySelector("#bestBudgetProfit"),
   stableCount: document.querySelector("#stableCount"),
+  confirmedCount: document.querySelector("#confirmedCount"),
   updated: document.querySelector("#updatedAt"),
   tabs: [...document.querySelectorAll(".tab")]
 };
 
 function numberInput(element, fallback = 0) {
-  const value = Number(element.value);
+  const value = Number(element?.value);
   return Number.isFinite(value) ? value : fallback;
 }
 
@@ -64,6 +72,8 @@ function settings() {
     minProfit: Math.max(0, numberInput(elements.minProfit, 0)),
     minRoi: Math.max(0, numberInput(elements.minRoi, 0)),
     minStability: Math.max(1, numberInput(elements.minStability, 1)),
+    maxDiscrepancy: Math.max(0, numberInput(elements.maxDiscrepancy, 0)),
+    useSecondSource: Boolean(elements.useSecondSource?.checked),
     buyPremium: Math.max(0, numberInput(elements.buyPremium, 0)),
     sellDiscount: Math.max(0, numberInput(elements.sellDiscount, 0)),
     autoRefresh: Math.max(0, numberInput(elements.autoRefresh, 0)),
@@ -89,6 +99,7 @@ function loadSettings() {
       minProfit: elements.minProfit,
       minRoi: elements.minRoi,
       minStability: elements.minStability,
+      maxDiscrepancy: elements.maxDiscrepancy,
       buyPremium: elements.buyPremium,
       sellDiscount: elements.sellDiscount,
       autoRefresh: elements.autoRefresh,
@@ -96,7 +107,10 @@ function loadSettings() {
       league: elements.league
     };
     for (const [key, element] of Object.entries(mapping)) {
-      if (saved[key] !== undefined && saved[key] !== null) element.value = String(saved[key]);
+      if (element && saved[key] !== undefined && saved[key] !== null) element.value = String(saved[key]);
+    }
+    if (elements.useSecondSource && saved.useSecondSource !== undefined) {
+      elements.useSecondSource.checked = Boolean(saved.useSecondSource);
     }
   } catch (error) {
     console.warn("Не удалось прочитать настройки:", error);
@@ -122,8 +136,7 @@ function loadHistory(league) {
 
 function saveHistory(league, history) {
   try {
-    const trimmed = history.slice(-MAX_HISTORY_SNAPSHOTS);
-    localStorage.setItem(historyKey(league), JSON.stringify(trimmed));
+    localStorage.setItem(historyKey(league), JSON.stringify(history.slice(-MAX_HISTORY_SNAPSHOTS)));
   } catch (error) {
     console.warn("Не удалось сохранить историю цен:", error);
   }
@@ -139,7 +152,15 @@ function createSnapshot(itemsByCategory) {
     for (const item of items) {
       prices[priceKey(category, item.name)] = {
         price: item.price,
-        volume: item.volume
+        ninjaPrice: item.ninjaPrice,
+        watchPrice: item.watchPrice,
+        ninjaVolume: item.ninjaVolume,
+        watchVolume: item.watchVolume,
+        volume: item.volume,
+        change24h: item.change24h,
+        history7d: item.history7d,
+        discrepancy: item.discrepancy,
+        sources: item.sources
       };
     }
   }
@@ -153,9 +174,7 @@ function appendSnapshot(league, snapshot) {
   else state.history.push(snapshot);
 
   const cutoff = Date.now() - MAX_HISTORY_AGE_MS;
-  state.history = state.history
-    .filter((item) => item.ts >= cutoff)
-    .slice(-MAX_HISTORY_SNAPSHOTS);
+  state.history = state.history.filter((item) => item.ts >= cutoff).slice(-MAX_HISTORY_SNAPSHOTS);
   saveHistory(league, state.history);
 }
 
@@ -167,8 +186,8 @@ function opportunityAtSnapshot(pair, snapshot, currentSettings) {
   if (!input || !output) return null;
   return calculateOpportunity({
     ...pair,
-    input: { ...pair.input, price: Number(input.price), volume: Number(input.volume ?? 0) },
-    output: { ...pair.output, price: Number(output.price), volume: Number(output.volume ?? 0) }
+    input: { ...pair.input, ...input },
+    output: { ...pair.output, ...output }
   }, currentSettings);
 }
 
@@ -194,20 +213,19 @@ function historyMetrics(pair, currentSettings) {
     ? current.profit - baselinePoint.opportunity.profit
     : Number.NaN;
 
-  return {
-    samples: points.length,
-    streak,
-    marginTrend
-  };
+  return { samples: points.length, streak, marginTrend };
 }
 
 function confidenceScore(row, metrics) {
-  const historyPoints = Math.min(35, metrics.samples * 7);
-  const stabilityPoints = Math.min(30, metrics.streak * 8);
-  const minimumVolume = Math.max(0, Math.min(row.input.volume || 0, row.output.volume || 0));
-  const volumePoints = Math.min(25, Math.log10(minimumVolume + 1) * 9);
+  const historyPoints = Math.min(20, metrics.samples * 4);
+  const stabilityPoints = Math.min(20, metrics.streak * 6);
+  const sourcePoints = row.bothSources ? 25 : 0;
+  const discrepancyPoints = !Number.isFinite(row.maxDiscrepancy)
+    ? 0
+    : row.maxDiscrepancy <= 7 ? 15 : row.maxDiscrepancy <= 15 ? 8 : row.maxDiscrepancy <= 25 ? 3 : 0;
+  const volumePoints = row.minWatchVolume > 0 ? Math.min(10, Math.log10(row.minWatchVolume + 1) * 3.5) : 0;
   const marginPoints = row.roi >= 30 ? 10 : row.roi >= 15 ? 7 : row.roi > 0 ? 3 : 0;
-  return Math.round(Math.min(100, historyPoints + stabilityPoints + volumePoints + marginPoints));
+  return Math.round(Math.min(100, historyPoints + stabilityPoints + sourcePoints + discrepancyPoints + volumePoints + marginPoints));
 }
 
 function recalculateRows() {
@@ -215,12 +233,7 @@ function recalculateRows() {
   state.rows = state.pairs.map((pair) => {
     const base = calculateOpportunity(pair, currentSettings);
     const metrics = historyMetrics(pair, currentSettings);
-    return {
-      ...base,
-      ...metrics,
-      confidence: confidenceScore(base, metrics),
-      key: recipeKey(pair)
-    };
+    return { ...base, ...metrics, confidence: confidenceScore(base, metrics), key: recipeKey(pair) };
   });
 }
 
@@ -231,12 +244,15 @@ function currentRows() {
     .filter((row) => row.profit >= currentSettings.minProfit)
     .filter((row) => row.roi >= currentSettings.minRoi)
     .filter((row) => row.streak >= currentSettings.minStability)
+    .filter((row) => !currentSettings.maxDiscrepancy || !Number.isFinite(row.maxDiscrepancy) || row.maxDiscrepancy <= currentSettings.maxDiscrepancy)
     .sort((a, b) => {
       if (currentSettings.sort === "roi") return b.roi - a.roi;
       if (currentSettings.sort === "budgetProfit") return b.budgetProfit - a.budgetProfit;
       if (currentSettings.sort === "stability") return b.streak - a.streak || b.profit - a.profit;
       if (currentSettings.sort === "cost") return a.cost - b.cost;
       if (currentSettings.sort === "profit") return b.profit - a.profit;
+      if (currentSettings.sort === "discrepancy") return (a.maxDiscrepancy ?? Infinity) - (b.maxDiscrepancy ?? Infinity);
+      if (currentSettings.sort === "volume") return b.minWatchVolume - a.minWatchVolume;
       return b.confidence - a.confidence || b.profit - a.profit;
     });
 }
@@ -244,6 +260,11 @@ function currentRows() {
 function formatChaos(value) {
   if (!Number.isFinite(value)) return "—";
   return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} c`;
+}
+
+function formatNumber(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return Number(value).toLocaleString("ru-RU", { notation: Number(value) >= 10000 ? "compact" : "standard", maximumFractionDigits: 1 });
 }
 
 function formatPercent(value) {
@@ -264,17 +285,30 @@ function escapeAttribute(value) {
   return escapeHtml(value);
 }
 
+function priceSourcesHtml(item) {
+  const ninja = Number.isFinite(item.ninjaPrice) ? `N: ${formatChaos(item.ninjaPrice)}` : "N: —";
+  const watch = Number.isFinite(item.watchPrice) ? `W: ${formatChaos(item.watchPrice)}` : "W: —";
+  return `<small class="source-prices"><span>${ninja}</span><span>${watch}</span></small>`;
+}
+
 function itemCell(item, quantity = 1) {
-  const image = item.icon
-    ? `<img src="${escapeAttribute(item.icon)}" alt="" loading="lazy">`
-    : "";
+  const image = item.icon ? `<img src="${escapeAttribute(item.icon)}" alt="" loading="lazy">` : "";
   const prefix = quantity > 1 ? `${quantity} × ` : "";
-  return `<div class="item-cell">${image}<span class="item-name">${prefix}${escapeHtml(item.name)}<small class="item-price">${formatChaos(item.price)}</small></span></div>`;
+  const change = Number.isFinite(item.change24h)
+    ? `<small class="item-change ${item.change24h > 0 ? "trend-up" : item.change24h < 0 ? "trend-down" : "trend-flat"}">24ч: ${item.change24h > 0 ? "+" : ""}${formatPercent(item.change24h)}</small>`
+    : "";
+  return `<div class="item-cell">${image}<span class="item-name">${prefix}${escapeHtml(item.name)}${priceSourcesHtml(item)}${change}</span></div>`;
 }
 
 function confidenceBadge(score) {
   const level = score >= 70 ? "high" : score >= 45 ? "medium" : "low";
   return `<span class="confidence-badge confidence-${level}">${score}/100</span>`;
+}
+
+function discrepancyBadge(value, confirmed) {
+  if (!confirmed || !Number.isFinite(value)) return `<span class="source-badge source-one">1 источник</span>`;
+  const level = value <= 7 ? "high" : value <= 15 ? "medium" : "low";
+  return `<span class="confidence-badge confidence-${level}">${formatPercent(value)}</span>`;
 }
 
 function trendCell(value) {
@@ -284,6 +318,29 @@ function trendCell(value) {
   return `<span class="${className}">${sign}${formatChaos(value)}</span>`;
 }
 
+function sparkline(values) {
+  const points = Array.isArray(values) ? values.map(Number).filter(Number.isFinite).slice(-7) : [];
+  if (points.length < 2) return `<span class="trend-flat">нет данных</span>`;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const coords = points.map((value, index) => {
+    const x = (index / (points.length - 1)) * 100;
+    const y = 28 - ((value - min) / range) * 24;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const change = points[0] ? (points.at(-1) - points[0]) / points[0] * 100 : Number.NaN;
+  const className = change > 0 ? "spark-up" : change < 0 ? "spark-down" : "spark-flat";
+  return `<div class="sparkline-wrap"><svg class="sparkline ${className}" viewBox="0 0 100 32" preserveAspectRatio="none" aria-label="График за 7 дней"><polyline points="${coords}"></polyline></svg><small>${Number.isFinite(change) ? `${change > 0 ? "+" : ""}${formatPercent(change)}` : "—"}</small></div>`;
+}
+
+function liquidityCell(row) {
+  if (!row.bothSources) return `<span class="trend-flat">нет poe.watch</span>`;
+  const inputChange = Number.isFinite(row.input.change24h) ? `${row.input.change24h > 0 ? "+" : ""}${formatPercent(row.input.change24h)}` : "—";
+  const outputChange = Number.isFinite(row.output.change24h) ? `${row.output.change24h > 0 ? "+" : ""}${formatPercent(row.output.change24h)}` : "—";
+  return `<div class="liquidity-cell"><strong>${formatNumber(row.minWatchVolume)}</strong><small>вход ${inputChange}</small><small>выход ${outputChange}</small></div>`;
+}
+
 function render() {
   const rows = currentRows();
   const currentSettings = settings();
@@ -291,27 +348,25 @@ function render() {
   elements.bestProfit.textContent = rows.length ? formatChaos(Math.max(...rows.map((row) => row.profit))) : "—";
   elements.bestBudgetProfit.textContent = rows.length ? formatChaos(Math.max(...rows.map((row) => row.budgetProfit))) : "—";
   elements.stableCount.textContent = state.rows.filter((row) => row.streak >= currentSettings.minStability && row.profit > 0).length.toLocaleString("ru-RU");
+  elements.confirmedCount.textContent = state.rows.filter((row) => row.bothSources).length.toLocaleString("ru-RU");
 
   if (!rows.length) {
     const hint = state.history.length < currentSettings.minStability
       ? `Для фильтра «${currentSettings.minStability} замера» нужно дождаться нескольких обновлений или временно поставить 1 замер.`
       : "Нет операций, проходящих заданные фильтры.";
-    elements.body.innerHTML = `<tr><td colspan="11" class="empty-state">${escapeHtml(hint)}</td></tr>`;
+    elements.body.innerHTML = `<tr><td colspan="14" class="empty-state">${escapeHtml(hint)}</td></tr>`;
     return;
   }
 
   elements.body.innerHTML = rows.map((row) => {
-    const label = row.category === "oil"
-      ? "Масло"
-      : row.category === "essence"
-        ? "Эссенция"
-        : "Карточка";
+    const label = row.category === "oil" ? "Масло" : row.category === "essence" ? "Эссенция" : "Карточка";
     const profitClass = row.profit >= 0 ? "profit" : "loss";
     const budgetText = row.maxOperations > 0
       ? `${formatChaos(row.budgetProfit)}<small class="item-price">${row.maxOperations} оп.</small>`
       : "—";
+    const graphValues = row.output.history7d?.length ? row.output.history7d : row.input.history7d;
     return `
-      <tr title="Теоретическая прибыль без запаса: ${formatChaos(row.theoreticalProfit)}">
+      <tr title="Расчётная прибыль до наценки и скидки: ${formatChaos(row.theoreticalProfit)}">
         <td><span class="category-badge">${label}</span></td>
         <td>${itemCell(row.input, row.ratio)}</td>
         <td>${itemCell(row.output, row.outputQuantity ?? 1)}</td>
@@ -320,6 +375,9 @@ function render() {
         <td class="number ${profitClass}">${formatChaos(row.profit)}</td>
         <td class="number ${profitClass}">${formatPercent(row.roi)}</td>
         <td class="number ${profitClass}">${budgetText}</td>
+        <td class="number">${discrepancyBadge(row.maxDiscrepancy, row.bothSources)}</td>
+        <td class="number">${liquidityCell(row)}</td>
+        <td class="number">${sparkline(graphValues)}</td>
         <td class="number"><span class="stability-badge">${row.streak} / ${row.samples}</span></td>
         <td class="number">${trendCell(row.marginTrend)}</td>
         <td class="number">${confidenceBadge(row.confidence)}</td>
@@ -368,6 +426,33 @@ function demoPayload(type) {
   return { core: { primary: "chaos", items }, lines };
 }
 
+function demoWatchPayload() {
+  const base = [
+    ["Clear Oil", 0.13, 420, 2.5], ["Sepia Oil", 0.36, 390, 4.1], ["Amber Oil", 0.78, 360, -1.2],
+    ["Verdant Oil", 1.75, 330, 3.3], ["Teal Oil", 5.05, 300, 6.2], ["Azure Oil", 13.9, 280, -2.1],
+    ["Indigo Oil", 40, 240, 5.5], ["Violet Oil", 112, 210, -3.5],
+    ["Whispering Essence of Greed", 0.82, 650, 1.1], ["Muttering Essence of Greed", 2.7, 580, -0.8],
+    ["Weeping Essence of Greed", 9.5, 520, 4.2], ["Wailing Essence of Greed", 30.2, 480, 2.9],
+    ["Screaming Essence of Greed", 3.1, 900, 5.4], ["Shrieking Essence of Greed", 11.2, 760, -1.6],
+    ["Deafening Essence of Greed", 38, 620, 3.8], ["Screaming Essence of Wrath", 4.2, 850, 7.1],
+    ["Shrieking Essence of Wrath", 14.7, 710, -2.3], ["Deafening Essence of Wrath", 50, 590, 1.8],
+    ["The Wrath", 0.86, 170, 4.4], ["The Fortunate", 18.6, 120, 8.1], ["Rain of Chaos", 0.19, 390, -1.4],
+    ["The Hoarder", 3.1, 150, 3.2], ["Lucky Connections", 1.12, 88, 2.1], ["The Seeker", 8.7, 52, -4.2],
+    ["Chaos Orb", 1, 30000, 0], ["Divine Orb", 148, 9500, 2.2], ["Exalted Orb", 12.4, 8700, -1.1],
+    ["Orb of Fusing", 0.25, 12000, 3.6], ["Orb of Annulment", 27.5, 3200, -2.2]
+  ];
+  return {
+    items: base.map(([name, mean, volume, change24h], index) => ({
+      id: index + 1,
+      name,
+      mean,
+      volume,
+      change24h,
+      history7d: [mean * 0.91, mean * 0.94, mean * 0.97, mean * 0.95, mean * 1.01, mean * 0.99, mean]
+    }))
+  };
+}
+
 async function loadLeagues() {
   if (DEMO_MODE) {
     elements.leagueOptions.innerHTML = `<option value="Mirage"></option><option value="Standard"></option>`;
@@ -377,25 +462,16 @@ async function loadLeagues() {
     const payload = await fetchJson("/api/leagues");
     const sourceLeagues = Array.isArray(payload) ? payload : payload?.leagues;
     if (!Array.isArray(sourceLeagues)) return;
-
-    // Always expose the permanent Standard league, even if the upstream
-    // endpoint temporarily omits it or an older cached response is returned.
     const leagues = [...sourceLeagues];
     const knownSourceIds = new Set(leagues.map((league) => league?.id ?? league?.name ?? league));
-    if (!knownSourceIds.has("Standard")) {
-      leagues.push({ id: "Standard", name: "Standard", current: false });
-    }
-
+    if (!knownSourceIds.has("Standard")) leagues.push({ id: "Standard", name: "Standard", current: false });
     elements.leagueOptions.innerHTML = leagues.map((league) => {
       const id = league?.id ?? league?.name ?? league;
       return `<option value="${escapeAttribute(id)}"></option>`;
     }).join("");
-
     const currentLeague = leagues.find((league) => league?.current)?.id;
     const knownIds = leagues.map((league) => league?.id ?? league?.name ?? league);
-    if (currentLeague && !knownIds.includes(elements.league.value.trim())) {
-      elements.league.value = currentLeague;
-    }
+    if (currentLeague && !knownIds.includes(elements.league.value.trim())) elements.league.value = currentLeague;
   } catch (error) {
     console.warn("Не удалось загрузить список лиг:", error);
   }
@@ -410,11 +486,11 @@ async function refreshData({ silent = false } = {}) {
   elements.refresh.disabled = true;
   if (!silent) {
     elements.status.className = "status";
-    elements.status.textContent = "Загружаю масла, эссенции, карточки и валюту…";
+    elements.status.textContent = "Загружаю poe.ninja и poe.watch…";
   }
 
   try {
-    const [oilPayload, essencePayload, cardPayload, currencyPayload] = DEMO_MODE
+    const ninjaPayloads = DEMO_MODE
       ? [demoPayload("Oil"), demoPayload("Essence"), demoPayload("DivinationCard"), demoPayload("Currency")]
       : await Promise.all([
           fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=Oil`),
@@ -423,18 +499,35 @@ async function refreshData({ silent = false } = {}) {
           fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=Currency`)
         ]);
 
+    let watchPayload = null;
+    let watchError = null;
+    try {
+      watchPayload = DEMO_MODE ? demoWatchPayload() : await fetchJson(`/api/watch?league=${encodeURIComponent(league)}`);
+    } catch (error) {
+      watchError = error;
+      console.warn("poe.watch недоступен, продолжаю только с poe.ninja:", error);
+    }
+
+    const [oilPayload, essencePayload, cardPayload, currencyPayload] = ninjaPayloads;
     const oilsNormalized = normalizeExchange(oilPayload);
     const essencesNormalized = normalizeExchange(essencePayload);
     const cardsNormalized = normalizeExchange(cardPayload);
     const currencyNormalized = normalizeExchange(currencyPayload);
-    const oils = oilsNormalized.items;
-    const essences = essencesNormalized.items;
-    const cards = cardsNormalized.items;
-    const currencies = currencyNormalized.items;
+    const watchItems = watchPayload ? normalizePoeWatch(watchPayload) : [];
+
+    const oils = mergeMarketSources(oilsNormalized.items, watchItems);
+    const essences = mergeMarketSources(essencesNormalized.items, watchItems);
+    const cards = mergeMarketSources(cardsNormalized.items, watchItems);
+    const currencies = mergeMarketSources(currencyNormalized.items, watchItems);
+
+    const allMerged = [...oils, ...essences, ...cards, ...currencies];
+    state.watchAvailable = watchItems.length > 0;
+    state.watchItemCount = watchItems.length;
+    state.watchMatchCount = allMerged.filter((item) => item.sources === 2).length;
     state.sourcePrimary = oilsNormalized.primaryName || essencesNormalized.primaryName || cardsNormalized.primaryName || currencyNormalized.primaryName || "Chaos Orb";
+
     const cardPairs = buildFixedCurrencyCardPairs(cards, currencies, FIXED_CURRENCY_CARD_CATALOG);
     state.pairs = [...buildOilPairs(oils), ...buildEssencePairs(essences), ...cardPairs];
-
     state.history = loadHistory(league);
     appendSnapshot(league, createSnapshot({ oil: oils, essence: essences, card: cards, currency: currencies }));
     recalculateRows();
@@ -442,15 +535,18 @@ async function refreshData({ silent = false } = {}) {
 
     const now = new Date();
     elements.updated.textContent = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-    elements.status.className = "status success";
-    elements.status.textContent = `${DEMO_MODE ? "Демо: " : ""}получено ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек и ${currencies.length} валют. Фиксированных карточных цепочек: ${cardPairs.length}. Валюта расчёта: ${state.sourcePrimary}. История: ${state.history.length} замеров.`;
+    elements.status.className = watchError ? "status warning" : "status success";
+    const watchText = watchError
+      ? `poe.watch недоступен: используется только poe.ninja. ${watchError.message}`
+      : `poe.watch: ${watchItems.length} позиций, совпало ${state.watchMatchCount}.`;
+    elements.status.textContent = `${DEMO_MODE ? "Демо. " : ""}poe.ninja: ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек, ${currencies.length} валют. ${watchText} Карточных цепочек: ${cardPairs.length}. История: ${state.history.length}.`;
     render();
     scheduleAutoRefresh();
   } catch (error) {
     console.error(error);
     elements.status.className = "status error";
-    elements.status.textContent = `Не удалось получить данные: ${error.message}`;
-    elements.body.innerHTML = `<tr><td colspan="11" class="empty-state">Проверьте функции /api/leagues и /api/prices. Для просмотра интерфейса откройте адрес с параметром ?demo=1.</td></tr>`;
+    elements.status.textContent = `Не удалось получить основные данные poe.ninja: ${error.message}`;
+    elements.body.innerHTML = `<tr><td colspan="14" class="empty-state">Проверьте /api/leagues, /api/prices и /api/watch. Для демо откройте адрес с параметром ?demo=1.</td></tr>`;
   } finally {
     state.isRefreshing = false;
     elements.refresh.disabled = false;
@@ -467,7 +563,6 @@ function scheduleAutoRefresh() {
     elements.countdown.textContent = "Автообновление выключено.";
     return;
   }
-
   const delay = minutes * 60 * 1000;
   state.nextRefreshAt = Date.now() + delay;
   state.autoTimer = setTimeout(() => {
@@ -494,21 +589,18 @@ function csvEscape(value) {
 function exportCsv() {
   const rows = currentRows();
   if (!rows.length) return;
-  const headers = ["Категория", "Покупка", "Результат", "Затраты chaos", "Продажа chaos", "Прибыль chaos", "ROI %", "Операций", "Прибыль на бюджет", "Стабильность", "Замеров", "Тренд маржи", "Доверие"];
+  const headers = [
+    "Категория", "Покупка", "Результат", "Ninja вход", "Watch вход", "Ninja выход", "Watch выход",
+    "Расхождение %", "Watch объём", "Вход 24ч %", "Выход 24ч %", "Затраты chaos", "Продажа chaos",
+    "Прибыль chaos", "ROI %", "Операций", "Прибыль на бюджет", "Стабильность", "Замеров", "Доверие"
+  ];
   const data = rows.map((row) => [
     row.category,
     `${row.ratio} x ${row.input.name}`,
     `${row.outputQuantity ?? 1} x ${row.output.name}`,
-    row.cost,
-    row.sale,
-    row.profit,
-    row.roi,
-    row.maxOperations,
-    row.budgetProfit,
-    row.streak,
-    row.samples,
-    row.marginTrend,
-    row.confidence
+    row.input.ninjaPrice, row.input.watchPrice, row.output.ninjaPrice, row.output.watchPrice,
+    row.maxDiscrepancy, row.minWatchVolume, row.input.change24h, row.output.change24h,
+    row.cost, row.sale, row.profit, row.roi, row.maxOperations, row.budgetProfit, row.streak, row.samples, row.confidence
   ]);
   const csv = [headers, ...data].map((line) => line.map(csvEscape).join(";")).join("\n");
   const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
@@ -532,36 +624,36 @@ function clearHistory() {
 }
 
 const recalculationInputs = [
-  elements.budget,
-  elements.minProfit,
-  elements.minRoi,
-  elements.minStability,
-  elements.buyPremium,
-  elements.sellDiscount,
-  elements.sort
+  elements.budget, elements.minProfit, elements.minRoi, elements.minStability,
+  elements.maxDiscrepancy, elements.useSecondSource, elements.buyPremium,
+  elements.sellDiscount, elements.sort
 ];
 
 for (const input of recalculationInputs) {
-  input.addEventListener("input", () => {
+  input?.addEventListener("input", () => {
     saveSettings();
     if (state.pairs.length) {
       recalculateRows();
       render();
     }
   });
+  if (input?.type === "checkbox") {
+    input.addEventListener("change", () => {
+      saveSettings();
+      if (state.pairs.length) {
+        recalculateRows();
+        render();
+      }
+    });
+  }
 }
 
-elements.autoRefresh.addEventListener("change", () => {
-  saveSettings();
-  scheduleAutoRefresh();
-});
+elements.autoRefresh.addEventListener("change", () => { saveSettings(); scheduleAutoRefresh(); });
 elements.refresh.addEventListener("click", () => refreshData());
 elements.export.addEventListener("click", exportCsv);
 elements.clearHistory.addEventListener("click", clearHistory);
 elements.league.addEventListener("change", () => refreshData());
-elements.league.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") refreshData();
-});
+elements.league.addEventListener("keydown", (event) => { if (event.key === "Enter") refreshData(); });
 
 elements.tabs.forEach((tab) => {
   tab.addEventListener("click", () => {

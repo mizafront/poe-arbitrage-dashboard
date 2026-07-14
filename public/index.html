@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Поиск арбитражных рецептов масел, эссенций и карточек Path of Exile по данным poe.ninja">
+  <meta name="description" content="Поиск арбитражных рецептов Path of Exile по данным poe.ninja и poe.watch">
   <title>PoE Arbitrage Dashboard</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -12,7 +12,7 @@
     <div>
       <p class="eyebrow">PATH OF EXILE 1 · ECONOMY LAB</p>
       <h1>Arbitrage Dashboard</h1>
-      <p class="subtitle">Ищет потенциально выгодные рецепты масел, эссенций и комплекты карточек с фиксированной валютной наградой.</p>
+      <p class="subtitle">Сравнивает poe.ninja и poe.watch, оценивает расхождение, объём, изменение за 24 часа и тренд за 7 дней.</p>
     </div>
     <div class="header-actions">
       <button id="exportButton" class="secondary-button" type="button">Экспорт CSV</button>
@@ -49,6 +49,11 @@
         </select>
       </label>
       <label>
+        Макс. расхождение, %
+        <input id="maxDiscrepancy" type="number" min="0" max="100" step="1" value="15">
+        <small class="control-hint">0 — не фильтровать</small>
+      </label>
+      <label>
         Наценка покупки, %
         <input id="buyPremium" type="number" min="0" max="100" step="1" value="5">
       </label>
@@ -65,12 +70,21 @@
           <option value="30">Каждые 30 минут</option>
         </select>
       </label>
+      <label class="checkbox-control">
+        <input id="useSecondSource" type="checkbox" checked>
+        <span>Консервативный расчёт по двум источникам</span>
+        <small class="control-hint">Покупка — по большей цене, продажа — по меньшей.</small>
+      </label>
     </section>
 
     <section class="summary-grid" aria-label="Сводка">
       <article class="summary-card">
         <span>Найдено операций</span>
         <strong id="opportunityCount">—</strong>
+      </article>
+      <article class="summary-card">
+        <span>Подтверждено 2 источниками</span>
+        <strong id="confirmedCount">—</strong>
       </article>
       <article class="summary-card">
         <span>Лучшая прибыль за операцию</span>
@@ -112,6 +126,8 @@
               <option value="roi">По ROI</option>
               <option value="budgetProfit">По прибыли на бюджет</option>
               <option value="stability">По стабильности</option>
+              <option value="discrepancy">По расхождению</option>
+              <option value="volume">По объёму poe.watch</option>
               <option value="cost">По затратам</option>
             </select>
           </label>
@@ -131,6 +147,9 @@
               <th class="number">Прибыль</th>
               <th class="number">ROI</th>
               <th class="number">На бюджет</th>
+              <th class="number">Расхождение</th>
+              <th class="number">Объём / 24ч</th>
+              <th class="number">7 дней</th>
               <th class="number">Стабильность</th>
               <th class="number">Тренд маржи</th>
               <th class="number">Доверие</th>
@@ -138,7 +157,7 @@
           </thead>
           <tbody id="resultsBody">
             <tr>
-              <td colspan="11" class="empty-state">Данные ещё не загружены.</td>
+              <td colspan="14" class="empty-state">Данные ещё не загружены.</td>
             </tr>
           </tbody>
         </table>
@@ -146,12 +165,12 @@
     </section>
 
     <section class="notice">
-      <strong>Как читать результат:</strong> расчёт использует агрегированную цену poe.ninja. На первом этапе карточки ограничены 43 наборами с конкретной валютой и фиксированным количеством. «Стабильность» — сколько последовательных сохранённых замеров сделка оставалась прибыльной. «На бюджет» — теоретический результат без проверки доступного объёма товара.
+      <strong>Как работает двойная проверка:</strong> poe.ninja ищет кандидатов, poe.watch подтверждает цену и добавляет объём, изменение за 24 часа и историю. При включённом консервативном режиме стоимость покупки берётся по более высокой цене из двух источников, а стоимость продажи — по более низкой. Если poe.watch недоступен, сайт продолжит работу по poe.ninja и покажет «1 источник».
     </section>
   </main>
 
   <footer>
-    Данные: poe.ninja. This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
+    Данные: poe.ninja и poe.watch. This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
   </footer>
 
   <script type="module" src="./app.js"></script>

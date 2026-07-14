@@ -5,7 +5,10 @@ import {
   buildFixedCurrencyCardPairs,
   buildOilPairs,
   calculateOpportunity,
-  normalizeExchange
+  mergeMarketSources,
+  normalizeExchange,
+  normalizePoeWatch,
+  priceDiscrepancyPercent
 } from "../public/core.js";
 import { FIXED_CURRENCY_CARD_CATALOG } from "../public/cards.js";
 
@@ -123,4 +126,81 @@ test("fixed currency card catalog is deterministic and unique", () => {
     assert.equal(names.has(entry.name), false);
     names.add(entry.name);
   }
+});
+
+
+test("normalizes poe.watch price, volume, 24h change and 7-day history", () => {
+  const payload = {
+    items: [
+      {
+        id: 17,
+        name: "Crimson Oil",
+        mean: 14.5,
+        volume: 420,
+        change24h: 6.2,
+        history7d: [11, 12, 12.5, 13, 13.2, 14, 14.5]
+      }
+    ]
+  };
+  const items = normalizePoeWatch(payload);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].name, "Crimson Oil");
+  assert.equal(items[0].price, 14.5);
+  assert.equal(items[0].watchVolume, 420);
+  assert.equal(items[0].change24h, 6.2);
+  assert.equal(items[0].history7d.length, 7);
+});
+
+test("merges poe.ninja and poe.watch by normalized item name", () => {
+  const ninja = [{ name: "Brother's Gift", price: 100, ninjaPrice: 100, volume: 10 }];
+  const watch = [{ name: "Brother’s Gift", price: 110, watchPrice: 110, watchVolume: 25, change24h: 4, history7d: [90, 110] }];
+  const [merged] = mergeMarketSources(ninja, watch);
+  assert.equal(merged.sources, 2);
+  assert.equal(merged.watchPrice, 110);
+  assert.ok(merged.discrepancy > 9 && merged.discrepancy < 10);
+});
+
+test("uses expensive source for purchase and cheaper source for sale", () => {
+  const pair = {
+    category: "oil",
+    ratio: 3,
+    input: { name: "A", price: 4, ninjaPrice: 4, watchPrice: 5, sources: 2, discrepancy: 22, watchVolume: 100 },
+    output: { name: "B", price: 18, ninjaPrice: 18, watchPrice: 16, sources: 2, discrepancy: 12, watchVolume: 80 }
+  };
+  const result = calculateOpportunity(pair, { useSecondSource: true, buyPremium: 0, sellDiscount: 0, budget: 100 });
+  assert.equal(result.inputUnitPrice, 5);
+  assert.equal(result.outputUnitPrice, 16);
+  assert.equal(result.profit, 1);
+  assert.equal(result.minWatchVolume, 80);
+});
+
+test("can disable conservative second-source pricing", () => {
+  const pair = {
+    category: "oil",
+    ratio: 3,
+    input: { name: "A", price: 4, ninjaPrice: 4, watchPrice: 5, sources: 2 },
+    output: { name: "B", price: 18, ninjaPrice: 18, watchPrice: 16, sources: 2 }
+  };
+  const result = calculateOpportunity(pair, { useSecondSource: false });
+  assert.equal(result.inputUnitPrice, 4);
+  assert.equal(result.outputUnitPrice, 18);
+  assert.equal(result.profit, 6);
+});
+
+test("calculates symmetric source discrepancy", () => {
+  const value = priceDiscrepancyPercent(90, 110);
+  assert.equal(value, 20);
+  assert.ok(Number.isNaN(priceDiscrepancyPercent(0, 10)));
+});
+
+test("normalizes poe.watch object-map payload", () => {
+  const payload = {
+    items: {
+      "42": { id: 42, name: "Golden Oil", mean: 99, volume: 12, change: -3 }
+    }
+  };
+  const items = normalizePoeWatch(payload);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].name, "Golden Oil");
+  assert.equal(items[0].price, 99);
 });

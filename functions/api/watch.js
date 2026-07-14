@@ -1,6 +1,5 @@
-const ALLOWED_TYPES = new Set(["Oil", "Essence", "DivinationCard", "Currency", "Fragment"]);
 const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.4.0 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
-const CACHE_SECONDS = 300;
+const CACHE_SECONDS = 600;
 
 function textResponse(message, status) {
   return new Response(message, {
@@ -13,16 +12,19 @@ function validLeague(league) {
   return Boolean(league && league.length <= 80 && /^[\p{L}\p{N} ._'’\-]+$/u.test(league));
 }
 
-function sourceUrls(league, type) {
-  const current = new URL("https://poe.ninja/poe1/api/economy/exchange/current/overview");
-  current.searchParams.set("league", league);
-  current.searchParams.set("type", type);
+function sourceUrls(league) {
+  const compactAll = new URL("https://api.poe.watch/compact");
+  compactAll.searchParams.set("league", league);
+  compactAll.searchParams.set("all", "true");
 
-  const legacyKind = type === "Currency" || type === "Fragment" ? "currencyoverview" : "itemoverview";
-  const legacy = new URL(`https://poe.ninja/api/data/${legacyKind}`);
-  legacy.searchParams.set("league", league);
-  legacy.searchParams.set("type", type);
-  return [current, legacy];
+  const compact = new URL("https://api.poe.watch/compact");
+  compact.searchParams.set("league", league);
+
+  const getAll = new URL("https://api.poe.watch/get");
+  getAll.searchParams.set("league", league);
+  getAll.searchParams.set("all", "true");
+
+  return [compactAll, compact, getAll];
 }
 
 async function requestJson(url) {
@@ -45,10 +47,7 @@ async function requestJson(url) {
 export async function onRequestGet(context) {
   const requestUrl = new URL(context.request.url);
   const league = requestUrl.searchParams.get("league")?.trim();
-  const type = requestUrl.searchParams.get("type")?.trim();
-
   if (!validLeague(league)) return textResponse("Invalid league", 400);
-  if (!type || !ALLOWED_TYPES.has(type)) return textResponse("Invalid type", 400);
 
   const cache = caches.default;
   const cacheKey = new Request(requestUrl.toString(), { method: "GET" });
@@ -56,18 +55,17 @@ export async function onRequestGet(context) {
   if (cached) return cached;
 
   let lastStatus = 502;
-  for (const source of sourceUrls(league, type)) {
+  for (const source of sourceUrls(league)) {
     const result = await requestJson(source);
     if (!result.ok) {
       lastStatus = result.status;
       continue;
     }
-
     const response = new Response(result.text, {
       status: 200,
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": `public, max-age=120, s-maxage=${CACHE_SECONDS}`,
+        "Cache-Control": `public, max-age=180, s-maxage=${CACHE_SECONDS}`,
         "X-Data-Source": result.source,
         "X-Content-Type-Options": "nosniff"
       }
@@ -76,5 +74,5 @@ export async function onRequestGet(context) {
     return response;
   }
 
-  return textResponse(`poe.ninja price sources failed (${lastStatus})`, 502);
+  return textResponse(`poe.watch price sources failed (${lastStatus})`, 502);
 }
