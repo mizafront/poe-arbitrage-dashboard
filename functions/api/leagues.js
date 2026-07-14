@@ -1,5 +1,5 @@
 const SOURCE_URL = "https://poe.ninja/poe1/api/economy/leagues";
-const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.5.0 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
+const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.6.0 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
 const CACHE_SECONDS = 900;
 
 function extractLeagues(payload) {

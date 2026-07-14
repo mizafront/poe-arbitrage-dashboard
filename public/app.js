@@ -12,8 +12,8 @@ import {
 } from "./core.js";
 import { FIXED_CARD_REWARD_CATALOG } from "./cards.js";
 
-const SETTINGS_KEY = "poe-arbitrage-settings:v4";
-const HISTORY_PREFIX = "poe-arbitrage-history:v4:";
+const SETTINGS_KEY = "poe-arbitrage-settings:v6";
+const HISTORY_PREFIX = "poe-arbitrage-history:v6:";
 const MAX_HISTORY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_HISTORY_SNAPSHOTS = 600;
 const DEMO_MODE = new URLSearchParams(window.location.search).get("demo") === "1";
@@ -50,6 +50,8 @@ const elements = {
   refresh: document.querySelector("#refreshButton"),
   export: document.querySelector("#exportButton"),
   clearHistory: document.querySelector("#clearHistoryButton"),
+  resetFilters: document.querySelector("#resetFiltersButton"),
+  diagnostics: document.querySelector("#filterDiagnostics"),
   status: document.querySelector("#status"),
   countdown: document.querySelector("#countdown"),
   body: document.querySelector("#resultsBody"),
@@ -219,16 +221,51 @@ function historyMetrics(pair, currentSettings) {
   return { samples: points.length, streak, marginTrend };
 }
 
-function confidenceScore(row, metrics) {
-  const historyPoints = Math.min(20, metrics.samples * 4);
-  const stabilityPoints = Math.min(20, metrics.streak * 6);
-  const sourcePoints = row.bothSources ? 25 : 0;
-  const discrepancyPoints = !Number.isFinite(row.maxDiscrepancy)
-    ? 0
-    : row.maxDiscrepancy <= 7 ? 15 : row.maxDiscrepancy <= 15 ? 8 : row.maxDiscrepancy <= 25 ? 3 : 0;
-  const volumePoints = row.minWatchVolume > 0 ? Math.min(10, Math.log10(row.minWatchVolume + 1) * 3.5) : 0;
+function confidenceBreakdown(row, metrics) {
+  const entries = [];
+  const add = (label, points, tone = points >= 0 ? "positive" : "negative") => {
+    entries.push({ label, points, tone });
+    return points;
+  };
+
+  let score = 0;
+  const historyPoints = Math.min(15, metrics.samples * 3);
+  score += add(metrics.samples
+    ? `История: ${metrics.samples} замеров`
+    : "История ещё не накоплена", historyPoints, metrics.samples ? "positive" : "neutral");
+
+  const stabilityPoints = Math.min(15, metrics.streak * 5);
+  score += add(metrics.streak
+    ? `Прибыль держится ${metrics.streak} замер(а)`
+    : "Сигнал появился только сейчас или уже исчез", stabilityPoints, metrics.streak ? "positive" : "neutral");
+
+  if (row.bothSources) score += add("Цены подтверждены poe.ninja и poe.watch", 25);
+  else score += add("Цена подтверждена только одним источником", 5, "warning");
+
+  if (Number.isFinite(row.maxDiscrepancy)) {
+    const points = row.maxDiscrepancy <= 7 ? 15 : row.maxDiscrepancy <= 15 ? 8 : row.maxDiscrepancy <= 25 ? 3 : 0;
+    score += add(`Расхождение источников: ${row.maxDiscrepancy.toFixed(1)}%`, points, points >= 8 ? "positive" : points > 0 ? "warning" : "negative");
+  } else {
+    add("Расхождение источников посчитать нельзя", 0, "neutral");
+  }
+
+  if (row.minWatchVolume > 0) {
+    const points = Math.min(10, Math.log10(row.minWatchVolume + 1) * 3.5);
+    score += add(`Минимальный объём poe.watch: ${Math.round(row.minWatchVolume)}`, points);
+  } else {
+    add("Нет подтверждённого объёма poe.watch", 0, "neutral");
+  }
+
   const marginPoints = row.roi >= 30 ? 10 : row.roi >= 15 ? 7 : row.roi > 0 ? 3 : 0;
-  return Math.round(Math.min(100, historyPoints + stabilityPoints + sourcePoints + discrepancyPoints + volumePoints + marginPoints));
+  score += add(`ROI: ${row.roi.toFixed(1)}%`, marginPoints, marginPoints >= 7 ? "positive" : marginPoints > 0 ? "warning" : "negative");
+
+  if (row.catalogConfidence === "medium") {
+    score += add("Награда точная, но цена уникального предмета зависит от роллов", 4, "warning");
+  } else {
+    score += add("Точное сопоставление награды", 10);
+  }
+
+  return { score: Math.round(Math.min(100, Math.max(0, score))), entries };
 }
 
 function recalculateRows() {
@@ -236,29 +273,57 @@ function recalculateRows() {
   state.rows = state.pairs.map((pair) => {
     const base = calculateOpportunity(pair, currentSettings);
     const metrics = historyMetrics(pair, currentSettings);
-    return { ...base, ...metrics, confidence: confidenceScore(base, metrics), key: recipeKey(pair) };
+    const confidence = confidenceBreakdown(base, metrics);
+    return {
+      ...base,
+      ...metrics,
+      confidence: confidence.score,
+      confidenceEntries: confidence.entries,
+      key: recipeKey(pair)
+    };
   });
 }
 
-function currentRows() {
-  const currentSettings = settings();
+function categoryScopedRows() {
   return state.rows
     .filter((row) => state.activeCategory === "all" || row.category === state.activeCategory)
-    .filter((row) => state.activeCategory !== "card" || state.activeCardCategory === "all" || row.cardCategory === state.activeCardCategory)
-    .filter((row) => row.profit >= currentSettings.minProfit)
-    .filter((row) => row.roi >= currentSettings.minRoi)
-    .filter((row) => row.streak >= currentSettings.minStability)
-    .filter((row) => !currentSettings.maxDiscrepancy || !Number.isFinite(row.maxDiscrepancy) || row.maxDiscrepancy <= currentSettings.maxDiscrepancy)
-    .sort((a, b) => {
-      if (currentSettings.sort === "roi") return b.roi - a.roi;
-      if (currentSettings.sort === "budgetProfit") return b.budgetProfit - a.budgetProfit;
-      if (currentSettings.sort === "stability") return b.streak - a.streak || b.profit - a.profit;
-      if (currentSettings.sort === "cost") return a.cost - b.cost;
-      if (currentSettings.sort === "profit") return b.profit - a.profit;
-      if (currentSettings.sort === "discrepancy") return (a.maxDiscrepancy ?? Infinity) - (b.maxDiscrepancy ?? Infinity);
-      if (currentSettings.sort === "volume") return b.minWatchVolume - a.minWatchVolume;
-      return b.confidence - a.confidence || b.profit - a.profit;
-    });
+    .filter((row) => state.activeCategory !== "card" || state.activeCardCategory === "all" || row.cardCategory === state.activeCardCategory);
+}
+
+function sortRows(rows, currentSettings) {
+  return [...rows].sort((a, b) => {
+    if (currentSettings.sort === "roi") return b.roi - a.roi;
+    if (currentSettings.sort === "budgetProfit") return b.budgetProfit - a.budgetProfit;
+    if (currentSettings.sort === "stability") return b.streak - a.streak || b.profit - a.profit;
+    if (currentSettings.sort === "cost") return a.cost - b.cost;
+    if (currentSettings.sort === "profit") return b.profit - a.profit;
+    if (currentSettings.sort === "discrepancy") return (a.maxDiscrepancy ?? Infinity) - (b.maxDiscrepancy ?? Infinity);
+    if (currentSettings.sort === "volume") return b.minWatchVolume - a.minWatchVolume;
+    return b.confidence - a.confidence || b.profit - a.profit;
+  });
+}
+
+function filterDiagnostics() {
+  const currentSettings = settings();
+  const scoped = categoryScopedRows();
+  const afterProfit = scoped.filter((row) => row.profit >= currentSettings.minProfit);
+  const afterRoi = afterProfit.filter((row) => row.roi >= currentSettings.minRoi);
+  const afterStability = afterRoi.filter((row) => row.streak >= currentSettings.minStability);
+  const afterDiscrepancy = afterStability.filter((row) =>
+    !currentSettings.maxDiscrepancy || !Number.isFinite(row.maxDiscrepancy) || row.maxDiscrepancy <= currentSettings.maxDiscrepancy
+  );
+  return {
+    total: scoped.length,
+    hiddenProfit: scoped.length - afterProfit.length,
+    hiddenRoi: afterProfit.length - afterRoi.length,
+    hiddenStability: afterRoi.length - afterStability.length,
+    hiddenDiscrepancy: afterStability.length - afterDiscrepancy.length,
+    visible: sortRows(afterDiscrepancy, currentSettings)
+  };
+}
+
+function currentRows() {
+  return filterDiagnostics().visible;
 }
 
 function formatChaos(value) {
@@ -304,9 +369,13 @@ function itemCell(item, quantity = 1) {
   return `<div class="item-cell">${image}<span class="item-name">${prefix}${escapeHtml(item.name)}${priceSourcesHtml(item)}${change}</span></div>`;
 }
 
-function confidenceBadge(score) {
-  const level = score >= 70 ? "high" : score >= 45 ? "medium" : "low";
-  return `<span class="confidence-badge confidence-${level}">${score}/100</span>`;
+function confidenceDetails(row) {
+  const level = row.confidence >= 70 ? "high" : row.confidence >= 45 ? "medium" : "low";
+  const items = (row.confidenceEntries ?? []).map((entry) => {
+    const sign = entry.points > 0 ? `+${Math.round(entry.points)}` : entry.points < 0 ? String(Math.round(entry.points)) : "0";
+    return `<li class="confidence-reason reason-${escapeAttribute(entry.tone)}"><span>${escapeHtml(entry.label)}</span><strong>${sign}</strong></li>`;
+  }).join("");
+  return `<details class="confidence-details"><summary class="confidence-badge confidence-${level}">${row.confidence}/100</summary><div class="confidence-popover"><strong>Почему такая оценка</strong><ul>${items}</ul></div></details>`;
 }
 
 function discrepancyBadge(value, confirmed) {
@@ -345,20 +414,53 @@ function liquidityCell(row) {
   return `<div class="liquidity-cell"><strong>${formatNumber(row.minWatchVolume)}</strong><small>вход ${inputChange}</small><small>выход ${outputChange}</small></div>`;
 }
 
+function rewardMeta(row) {
+  const parts = [];
+  if (row.rewardDescription) parts.push(row.rewardDescription);
+  if (Number.isFinite(row.output.gemLevel)) parts.push(`ур. ${row.output.gemLevel}`);
+  if (Number.isFinite(row.output.gemQuality)) parts.push(`кач. ${row.output.gemQuality}%`);
+  if (row.output.corrupted === true) parts.push("осквернён");
+  if (row.output.corrupted === false && row.cardCategory === "unique") parts.push("не осквернён");
+  return parts.length ? `<small class="reward-meta">${escapeHtml([...new Set(parts)].join(" · "))}</small>` : "";
+}
+
+function renderDiagnostics(diagnostics) {
+  if (!elements.diagnostics) return;
+  const chips = [
+    ["Рассчитано", diagnostics.total, "neutral"],
+    ["Скрыто прибылью", diagnostics.hiddenProfit, diagnostics.hiddenProfit ? "warning" : "neutral"],
+    ["Скрыто ROI", diagnostics.hiddenRoi, diagnostics.hiddenRoi ? "warning" : "neutral"],
+    ["Скрыто стабильностью", diagnostics.hiddenStability, diagnostics.hiddenStability ? "warning" : "neutral"],
+    ["Скрыто расхождением", diagnostics.hiddenDiscrepancy, diagnostics.hiddenDiscrepancy ? "warning" : "neutral"],
+    ["Показано", diagnostics.visible.length, diagnostics.visible.length ? "success" : "warning"]
+  ];
+  elements.diagnostics.innerHTML = chips.map(([label, value, tone]) =>
+    `<span class="diagnostic-chip diagnostic-${tone}">${escapeHtml(label)}: <strong>${Number(value).toLocaleString("ru-RU")}</strong></span>`
+  ).join("");
+}
+
+function emptyReason(diagnostics, currentSettings) {
+  if (!diagnostics.total) return "В выбранной категории пока нет сопоставленных рыночных цепочек.";
+  if (diagnostics.hiddenDiscrepancy) return `Все подходящие операции скрыты фильтром расхождения до ${currentSettings.maxDiscrepancy}%. Нажмите «Показать всё» или увеличьте предел.`;
+  if (diagnostics.hiddenStability) return `Операции скрыты фильтром стабильности «${currentSettings.minStability} замера». Дождитесь обновлений или поставьте 1 замер.`;
+  if (diagnostics.hiddenRoi) return `Операции скрыты минимальным ROI ${currentSettings.minRoi}%.`;
+  if (diagnostics.hiddenProfit) return `Операции скрыты минимальной прибылью ${currentSettings.minProfit} chaos.`;
+  return "Нет операций, проходящих заданные фильтры.";
+}
+
 function render() {
-  const rows = currentRows();
+  const diagnostics = filterDiagnostics();
+  const rows = diagnostics.visible;
   const currentSettings = settings();
+  renderDiagnostics(diagnostics);
   elements.count.textContent = rows.length.toLocaleString("ru-RU");
   elements.bestProfit.textContent = rows.length ? formatChaos(Math.max(...rows.map((row) => row.profit))) : "—";
   elements.bestBudgetProfit.textContent = rows.length ? formatChaos(Math.max(...rows.map((row) => row.budgetProfit))) : "—";
-  elements.stableCount.textContent = state.rows.filter((row) => row.streak >= currentSettings.minStability && row.profit > 0).length.toLocaleString("ru-RU");
-  elements.confirmedCount.textContent = state.rows.filter((row) => row.bothSources).length.toLocaleString("ru-RU");
+  elements.stableCount.textContent = rows.filter((row) => row.streak >= currentSettings.minStability && row.profit > 0).length.toLocaleString("ru-RU");
+  elements.confirmedCount.textContent = rows.filter((row) => row.bothSources).length.toLocaleString("ru-RU");
 
   if (!rows.length) {
-    const hint = state.history.length < currentSettings.minStability
-      ? `Для фильтра «${currentSettings.minStability} замера» нужно дождаться нескольких обновлений или временно поставить 1 замер.`
-      : "Нет операций, проходящих заданные фильтры.";
-    elements.body.innerHTML = `<tr><td colspan="14" class="empty-state">${escapeHtml(hint)}</td></tr>`;
+    elements.body.innerHTML = `<tr><td colspan="14" class="empty-state">${escapeHtml(emptyReason(diagnostics, currentSettings))}</td></tr>`;
     return;
   }
 
@@ -366,7 +468,9 @@ function render() {
     const cardLabels = {
       currency: "Карточка · Валюта",
       "map-fragment": "Карточка · Карта/фрагмент",
-      scarab: "Карточка · Скараб"
+      scarab: "Карточка · Скараб",
+      gem: "Карточка · Камень",
+      unique: "Карточка · Уникальный"
     };
     const label = row.category === "oil"
       ? "Масло"
@@ -382,7 +486,7 @@ function render() {
       <tr title="Расчётная прибыль до наценки и скидки: ${formatChaos(row.theoreticalProfit)}">
         <td><span class="category-badge">${label}</span></td>
         <td>${itemCell(row.input, row.ratio)}</td>
-        <td>${itemCell(row.output, row.outputQuantity ?? 1)}</td>
+        <td>${itemCell(row.output, row.outputQuantity ?? 1)}${rewardMeta(row)}</td>
         <td class="number">${formatChaos(row.cost)}</td>
         <td class="number">${formatChaos(row.sale)}</td>
         <td class="number ${profitClass}">${formatChaos(row.profit)}</td>
@@ -393,7 +497,7 @@ function render() {
         <td class="number">${sparkline(graphValues)}</td>
         <td class="number"><span class="stability-badge">${row.streak} / ${row.samples}</span></td>
         <td class="number">${trendCell(row.marginTrend)}</td>
-        <td class="number">${confidenceBadge(row.confidence)}</td>
+        <td class="number">${confidenceDetails(row)}</td>
       </tr>`;
   }).join("");
 }
@@ -427,7 +531,10 @@ function demoPayload(type) {
       ["Altered Perception", 14, 80], ["Boon of Justice", 2.2, 110], ["Checkmate", 0.32, 150],
       ["Last Hope", 5, 70], ["Eternal Bonds", 19, 42], ["Scholar of the Seas", 1.1, 65],
       ["The Professor", 3.5, 55], ["The Wolf's Legacy", 1.8, 48], ["Buried Treasure", 0.21, 180],
-      ["Man With Bear", 0.28, 160], ["The Card Sharp", 0.35, 145], ["The Deal", 0.4, 130]
+      ["Man With Bear", 0.28, 160], ["The Card Sharp", 0.35, 145], ["The Deal", 0.4, 130],
+      ["A Chilling Wind", 7.5, 45], ["The Dragon's Heart", 21, 35], ["The Enlightened", 5.5, 72],
+      ["The Apothecary", 32, 110], ["The Doctor", 18, 130], ["Hunter's Reward", 3.5, 90],
+      ["The Hunger", 2.8, 95], ["The Shieldbearer", 11, 65]
     ],
     Currency: [
       ["Chaos Orb", 1, 10000], ["Divine Orb", 150, 3400], ["Exalted Orb", 12, 3100],
@@ -444,13 +551,31 @@ function demoPayload(type) {
     Scarab: [
       ["Sulphite Scarab", 1.4, 2500], ["Bestiary Scarab", 1.7, 2200],
       ["Divination Scarab", 2.2, 1850], ["Cartography Scarab", 2.6, 2100]
-    ]
+    ],
+    SkillGem: [
+      ["Vaal Cold Snap", 42, 130, { gemLevel: 21, gemQuality: 20, corrupted: true }],
+      ["Empower Support", 310, 80, { gemLevel: 4, gemQuality: 0, corrupted: true }],
+      ["Enlighten Support", 65, 170, { gemLevel: 3, gemQuality: 0, corrupted: false }],
+      ["Enlighten Support", 350, 60, { gemLevel: 4, gemQuality: 0, corrupted: true }]
+    ],
+    UniqueAccessory: [
+      ["Mageblood", 180, 95, { corrupted: false }], ["Headhunter", 150, 120, { corrupted: false }],
+      ["The Taming", 18, 220, { corrupted: false }]
+    ],
+    UniqueWeapon: [],
+    UniqueArmour: [
+      ["The Squire", 110, 75, { corrupted: false, links: 0 }]
+    ],
+    UniqueFlask: [
+      ["Taste of Hate", 29, 260, { corrupted: false }]
+    ],
+    UniqueJewel: []
   };
   const items = {};
-  const lines = (demoItems[type] ?? []).map(([name, price, volume], index) => {
+  const lines = (demoItems[type] ?? []).map(([name, price, volume, metadata = {}], index) => {
     const id = `${type.toLowerCase()}-${index}`;
-    items[id] = { id, name, icon: "" };
-    return { id, primaryValue: price, volumePrimaryValue: volume };
+    items[id] = { id, name, icon: "", ...metadata };
+    return { id, primaryValue: price, volumePrimaryValue: volume, ...metadata };
   });
   return { core: { primary: "chaos", items }, lines };
 }
@@ -478,15 +603,28 @@ function demoWatchPayload() {
     ["Replica Cortex", 112, 90, 4.7], ["Mao Kun", 11.5, 405, -2.3],
     ["The Putrid Cloister", 21, 238, 1.2], ["Vaults of Atziri", 10.5, 286, -1.8],
     ["Sulphite Scarab", 1.35, 2380, 2.0], ["Bestiary Scarab", 1.65, 2100, 3.5],
-    ["Divination Scarab", 2.1, 1760, 4.8], ["Cartography Scarab", 2.5, 1980, -0.9]
+    ["Divination Scarab", 2.1, 1760, 4.8], ["Cartography Scarab", 2.5, 1980, -0.9],
+    ["A Chilling Wind", 7.8, 42, 2.4], ["The Dragon's Heart", 21.5, 32, 3.2],
+    ["The Enlightened", 5.7, 68, -1.0], ["The Apothecary", 33, 105, 5.0],
+    ["The Doctor", 18.5, 125, 2.0], ["Hunter's Reward", 3.7, 86, -0.5],
+    ["The Hunger", 2.9, 90, 1.2], ["The Shieldbearer", 11.2, 60, 2.1],
+    ["Vaal Cold Snap", 40, 120, 1.1, { gemLevel: 21, gemQuality: 20, corrupted: true }],
+    ["Empower Support", 300, 75, 2.5, { gemLevel: 4, gemQuality: 0, corrupted: true }],
+    ["Enlighten Support", 64, 160, -1.2, { gemLevel: 3, gemQuality: 0, corrupted: false }],
+    ["Enlighten Support", 340, 55, 1.8, { gemLevel: 4, gemQuality: 0, corrupted: true }],
+    ["Mageblood", 175, 90, 1.4, { corrupted: false }], ["Headhunter", 148, 115, -1.0, { corrupted: false }],
+    ["The Taming", 17.5, 210, 0.8, { corrupted: false }],
+    ["Taste of Hate", 28, 250, 1.2, { corrupted: false }],
+    ["The Squire", 108, 70, -0.8, { corrupted: false, links: 0 }]
   ];
   return {
-    items: base.map(([name, mean, volume, change24h], index) => ({
+    items: base.map(([name, mean, volume, change24h, metadata = {}], index) => ({
       id: index + 1,
       name,
       mean,
       volume,
       change24h,
+      ...metadata,
       history7d: [mean * 0.91, mean * 0.94, mean * 0.97, mean * 0.95, mean * 1.01, mean * 0.99, mean]
     }))
   };
@@ -536,7 +674,13 @@ async function refreshData({ silent = false } = {}) {
       { key: "currency", type: "Currency", optional: false },
       { key: "fragment", type: "Fragment", optional: true },
       { key: "uniqueMap", type: "UniqueMap", optional: true },
-      { key: "scarab", type: "Scarab", optional: true }
+      { key: "scarab", type: "Scarab", optional: true },
+      { key: "skillGem", type: "SkillGem", optional: true },
+      { key: "uniqueAccessory", type: "UniqueAccessory", optional: true },
+      { key: "uniqueWeapon", type: "UniqueWeapon", optional: true },
+      { key: "uniqueArmour", type: "UniqueArmour", optional: true },
+      { key: "uniqueFlask", type: "UniqueFlask", optional: true },
+      { key: "uniqueJewel", type: "UniqueJewel", optional: true }
     ];
     const optionalErrors = [];
     const payloadEntries = await Promise.all(ninjaTypes.map(async ({ key, type, optional }) => {
@@ -573,8 +717,17 @@ async function refreshData({ silent = false } = {}) {
     const fragments = mergeMarketSources(normalized.fragment.items, watchItems);
     const uniqueMaps = mergeMarketSources(normalized.uniqueMap.items, watchItems);
     const scarabs = mergeMarketSources(normalized.scarab.items, watchItems);
+    const skillGems = mergeMarketSources(normalized.skillGem.items, watchItems);
+    const uniqueAccessories = mergeMarketSources(normalized.uniqueAccessory.items, watchItems);
+    const uniqueWeapons = mergeMarketSources(normalized.uniqueWeapon.items, watchItems);
+    const uniqueArmours = mergeMarketSources(normalized.uniqueArmour.items, watchItems);
+    const uniqueFlasks = mergeMarketSources(normalized.uniqueFlask.items, watchItems);
+    const uniqueJewels = mergeMarketSources(normalized.uniqueJewel.items, watchItems);
 
-    const allMerged = [...oils, ...essences, ...cards, ...currencies, ...fragments, ...uniqueMaps, ...scarabs];
+    const allMerged = [
+      ...oils, ...essences, ...cards, ...currencies, ...fragments, ...uniqueMaps, ...scarabs,
+      ...skillGems, ...uniqueAccessories, ...uniqueWeapons, ...uniqueArmours, ...uniqueFlasks, ...uniqueJewels
+    ];
     state.watchAvailable = watchItems.length > 0;
     state.watchItemCount = watchItems.length;
     state.watchMatchCount = allMerged.filter((item) => item.sources === 2).length;
@@ -584,7 +737,13 @@ async function refreshData({ silent = false } = {}) {
       currency: currencies,
       fragment: fragments,
       "unique-map": uniqueMaps,
-      scarab: scarabs
+      scarab: scarabs,
+      "skill-gem": skillGems,
+      "unique-accessory": uniqueAccessories,
+      "unique-weapon": uniqueWeapons,
+      "unique-armour": uniqueArmours,
+      "unique-flask": uniqueFlasks,
+      "unique-jewel": uniqueJewels
     }, FIXED_CARD_REWARD_CATALOG);
     const cardCounts = cardPairs.reduce((acc, pair) => {
       acc[pair.cardCategory] = (acc[pair.cardCategory] ?? 0) + 1;
@@ -600,7 +759,13 @@ async function refreshData({ silent = false } = {}) {
       currency: currencies,
       fragment: fragments,
       "unique-map": uniqueMaps,
-      scarab: scarabs
+      scarab: scarabs,
+      "skill-gem": skillGems,
+      "unique-accessory": uniqueAccessories,
+      "unique-weapon": uniqueWeapons,
+      "unique-armour": uniqueArmours,
+      "unique-flask": uniqueFlasks,
+      "unique-jewel": uniqueJewels
     }));
     recalculateRows();
     saveSettings();
@@ -615,7 +780,8 @@ async function refreshData({ silent = false } = {}) {
     const optionalText = optionalErrors.length
       ? ` Не загрузились необязательные категории: ${optionalErrors.join("; ")}.`
       : "";
-    elements.status.textContent = `${DEMO_MODE ? "Демо. " : ""}poe.ninja: ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек, ${currencies.length} валют, ${fragments.length} фрагментов, ${uniqueMaps.length} уникальных карт, ${scarabs.length} позиций scarab. ${watchText}${optionalText} Карточные цепочки: ${cardPairs.length} (валюта ${cardCounts.currency ?? 0}, карты/фрагменты ${cardCounts["map-fragment"] ?? 0}, скарабы ${cardCounts.scarab ?? 0}). История: ${state.history.length}.`;
+    const uniqueMarketCount = uniqueAccessories.length + uniqueWeapons.length + uniqueArmours.length + uniqueFlasks.length + uniqueJewels.length;
+    elements.status.textContent = `${DEMO_MODE ? "Демо. " : ""}poe.ninja: ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек, ${currencies.length} валют, ${fragments.length} фрагментов, ${uniqueMaps.length} уникальных карт, ${scarabs.length} скараба, ${skillGems.length} камней, ${uniqueMarketCount} уникальных предметов. ${watchText}${optionalText} Карточные цепочки: ${cardPairs.length} (валюта ${cardCounts.currency ?? 0}, карты/фрагменты ${cardCounts["map-fragment"] ?? 0}, скарабы ${cardCounts.scarab ?? 0}, камни ${cardCounts.gem ?? 0}, уникальные ${cardCounts.unique ?? 0}). История: ${state.history.length}.`;
     render();
     scheduleAutoRefresh();
   } catch (error) {
@@ -700,6 +866,18 @@ function clearHistory() {
   elements.status.textContent = `История лиги ${league} очищена. Новый замер появится после обновления цен.`;
 }
 
+function resetFilters() {
+  elements.minProfit.value = "0";
+  elements.minRoi.value = "0";
+  elements.minStability.value = "1";
+  elements.maxDiscrepancy.value = "0";
+  saveSettings();
+  if (state.pairs.length) {
+    recalculateRows();
+    render();
+  }
+}
+
 const recalculationInputs = [
   elements.budget, elements.minProfit, elements.minRoi, elements.minStability,
   elements.maxDiscrepancy, elements.useSecondSource, elements.buyPremium,
@@ -729,6 +907,7 @@ elements.autoRefresh.addEventListener("change", () => { saveSettings(); schedule
 elements.refresh.addEventListener("click", () => refreshData());
 elements.export.addEventListener("click", exportCsv);
 elements.clearHistory.addEventListener("click", clearHistory);
+elements.resetFilters?.addEventListener("click", resetFilters);
 elements.league.addEventListener("change", () => refreshData());
 elements.league.addEventListener("keydown", (event) => { if (event.key === "Enter") refreshData(); });
 

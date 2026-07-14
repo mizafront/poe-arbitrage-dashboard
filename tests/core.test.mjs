@@ -9,13 +9,16 @@ import {
   mergeMarketSources,
   normalizeExchange,
   normalizePoeWatch,
-  priceDiscrepancyPercent
+  priceDiscrepancyPercent,
+  marketVariantKey
 } from "../public/core.js";
 import {
   FIXED_CARD_REWARD_CATALOG,
   FIXED_CURRENCY_CARD_CATALOG,
   FIXED_MAP_FRAGMENT_CARD_CATALOG,
-  FIXED_SCARAB_CARD_CATALOG
+  FIXED_SCARAB_CARD_CATALOG,
+  FIXED_GEM_CARD_CATALOG,
+  FIXED_UNIQUE_CARD_CATALOG
 } from "../public/cards.js";
 
 test("normalizes current exchange payload", () => {
@@ -261,17 +264,101 @@ test("builds exact scarab card rewards and excludes missing generic rewards", ()
   assert.equal(pairs[0].input.name, "Buried Treasure");
 });
 
+test("normalizes exact skill gem metadata", () => {
+  const payload = {
+    lines: [{
+      name: "Empower Support", chaosValue: 300, listingCount: 50,
+      gemLevel: 4, gemQuality: 0, corrupted: true
+    }]
+  };
+  const [gem] = normalizeExchange(payload).items;
+  assert.equal(gem.gemLevel, 4);
+  assert.equal(gem.gemQuality, 0);
+  assert.equal(gem.corrupted, true);
+  assert.match(marketVariantKey(gem), /level:4/);
+});
+
+test("builds only the exact gem reward variant", () => {
+  const cards = [{ name: "The Dragon's Heart", price: 20, volume: 30 }];
+  const gems = [
+    { name: "Empower Support", price: 5, volume: 1000, gemLevel: 1, gemQuality: 0, corrupted: false },
+    { name: "Empower Support", price: 300, volume: 50, gemLevel: 4, gemQuality: 0, corrupted: true }
+  ];
+  const catalog = [{
+    name: "The Dragon's Heart", stackSize: 11, rewardName: "Empower Support",
+    rewardMarketCategory: "skill-gem", cardCategory: "gem",
+    rewardConstraints: { gemLevel: 4, gemQuality: 0, corrupted: true }
+  }];
+  const pairs = buildFixedRewardCardPairs(cards, { "skill-gem": gems }, catalog);
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].output.price, 300);
+  assert.equal(pairs[0].output.gemLevel, 4);
+});
+
+test("does not merge a different gem variant from poe.watch", () => {
+  const ninja = [{
+    name: "Enlighten Support", price: 350, ninjaPrice: 350,
+    gemLevel: 4, gemQuality: 0, corrupted: true
+  }];
+  const watch = [{
+    name: "Enlighten Support", price: 60, watchPrice: 60,
+    gemLevel: 3, gemQuality: 0, corrupted: false
+  }];
+  const [merged] = mergeMarketSources(ninja, watch);
+  assert.equal(merged.sources, 1);
+  assert.ok(Number.isNaN(merged.watchPrice));
+});
+
+test("builds exact normal unique reward and rejects linked variant", () => {
+  const cards = [{ name: "The Beast", price: 3, volume: 100 }];
+  const armours = [
+    { name: "Belly of the Beast", price: 10, volume: 80, corrupted: false, links: 0 },
+    { name: "Belly of the Beast", price: 90, volume: 20, corrupted: false, links: 6 }
+  ];
+  const catalog = [{
+    name: "The Beast", stackSize: 6, rewardName: "Belly of the Beast",
+    rewardMarketCategory: "unique-armour", cardCategory: "unique",
+    rewardConstraints: { corrupted: false, links: 0 }, catalogConfidence: "medium"
+  }];
+  const pairs = buildFixedRewardCardPairs(cards, { "unique-armour": armours }, catalog);
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].output.links, 0);
+  assert.equal(pairs[0].catalogConfidence, "medium");
+});
+
+test("gem and unique catalogs contain only deterministic supported entries", () => {
+  assert.equal(FIXED_GEM_CARD_CATALOG.length, 11);
+  assert.equal(FIXED_UNIQUE_CARD_CATALOG.length, 21);
+  for (const entry of FIXED_GEM_CARD_CATALOG) {
+    assert.equal(entry.rewardMarketCategory, "skill-gem");
+    assert.ok(Number.isFinite(entry.rewardConstraints.gemLevel));
+    assert.ok(Number.isFinite(entry.rewardConstraints.gemQuality));
+    assert.equal(typeof entry.rewardConstraints.corrupted, "boolean");
+  }
+  for (const entry of FIXED_UNIQUE_CARD_CATALOG) {
+    assert.match(entry.rewardMarketCategory, /^unique-/);
+    assert.equal(entry.rewardConstraints.corrupted, false);
+    assert.equal(entry.catalogConfidence, "medium");
+  }
+});
+
 test("combined card catalog contains only supported deterministic categories", () => {
   assert.equal(FIXED_MAP_FRAGMENT_CARD_CATALOG.length, 8);
   assert.equal(FIXED_SCARAB_CARD_CATALOG.length, 4);
   assert.equal(
     FIXED_CARD_REWARD_CATALOG.length,
-    FIXED_CURRENCY_CARD_CATALOG.length + FIXED_MAP_FRAGMENT_CARD_CATALOG.length + FIXED_SCARAB_CARD_CATALOG.length
+    FIXED_CURRENCY_CARD_CATALOG.length + FIXED_MAP_FRAGMENT_CARD_CATALOG.length +
+      FIXED_SCARAB_CARD_CATALOG.length + FIXED_GEM_CARD_CATALOG.length + FIXED_UNIQUE_CARD_CATALOG.length
   );
   const names = new Set();
+  const supportedCardCategories = ["currency", "map-fragment", "scarab", "gem", "unique"];
+  const supportedMarkets = [
+    "currency", "fragment", "unique-map", "scarab", "skill-gem",
+    "unique-accessory", "unique-weapon", "unique-armour", "unique-flask", "unique-jewel"
+  ];
   for (const entry of FIXED_CARD_REWARD_CATALOG) {
-    assert.ok(["currency", "map-fragment", "scarab"].includes(entry.cardCategory));
-    assert.ok(["currency", "fragment", "unique-map", "scarab"].includes(entry.rewardMarketCategory));
+    assert.ok(supportedCardCategories.includes(entry.cardCategory));
+    assert.ok(supportedMarkets.includes(entry.rewardMarketCategory));
     assert.equal(names.has(entry.name), false);
     names.add(entry.name);
   }

@@ -33,6 +33,41 @@ function normalizedName(value) {
     .toLowerCase();
 }
 
+function optionalNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function optionalBoolean(value) {
+  if (value === true || value === false) return value;
+  if (value === 1 || value === "1" || value === "true") return true;
+  if (value === 0 || value === "0" || value === "false") return false;
+  return undefined;
+}
+
+function variantParts(item = {}) {
+  const gemLevel = optionalNumber(item.gemLevel);
+  const gemQuality = optionalNumber(item.gemQuality);
+  const links = optionalNumber(item.links);
+  const corrupted = optionalBoolean(item.corrupted);
+  return [
+    normalizedName(item.name),
+    Number.isFinite(gemLevel) ? `level:${gemLevel}` : "",
+    Number.isFinite(gemQuality) ? `quality:${gemQuality}` : "",
+    corrupted === undefined ? "" : `corrupted:${corrupted}`,
+    Number.isFinite(links) ? `links:${links}` : "",
+    item.variant ? `variant:${normalizedName(item.variant)}` : ""
+  ].filter(Boolean);
+}
+
+export function marketVariantKey(item = {}) {
+  return variantParts(item).join("|");
+}
+
+function hasVariantMetadata(item = {}) {
+  return variantParts(item).length > 1;
+}
+
 function metadataMap(payload) {
   const candidates = [payload?.core?.items, payload?.currencyDetails, payload?.items, payload?.details];
   const result = new Map();
@@ -100,6 +135,13 @@ export function normalizeExchange(payload) {
       volume,
       ninjaVolume: volume,
       sparkline: extractSparkline(line),
+      gemLevel: optionalNumber(line?.gemLevel ?? meta?.gemLevel),
+      gemQuality: optionalNumber(line?.gemQuality ?? meta?.gemQuality),
+      corrupted: optionalBoolean(line?.corrupted ?? meta?.corrupted),
+      links: optionalNumber(line?.links ?? meta?.links),
+      variant: String(line?.variant ?? meta?.variant ?? ""),
+      baseType: String(line?.baseType ?? meta?.baseType ?? ""),
+      itemClass: String(line?.itemClass ?? meta?.itemClass ?? ""),
       source: "poe.ninja"
     };
   }).filter((item) => item.name && Number.isFinite(item.price) && item.price > 0);
@@ -192,6 +234,13 @@ export function normalizePoeWatch(payload) {
       watchVolume: Number.isFinite(volume) ? volume : 0,
       change24h: Number.isFinite(change24h) ? change24h : Number.NaN,
       history7d: history,
+      gemLevel: optionalNumber(raw?.gemLevel ?? raw?.level ?? raw?.item?.gemLevel),
+      gemQuality: optionalNumber(raw?.gemQuality ?? raw?.quality ?? raw?.item?.gemQuality),
+      corrupted: optionalBoolean(raw?.corrupted ?? raw?.item?.corrupted),
+      links: optionalNumber(raw?.links ?? raw?.item?.links),
+      variant: String(raw?.variant ?? raw?.item?.variant ?? ""),
+      baseType: String(raw?.baseType ?? raw?.item?.baseType ?? ""),
+      itemClass: String(raw?.itemClass ?? raw?.item?.itemClass ?? ""),
       source: "poe.watch"
     };
 
@@ -211,9 +260,25 @@ export function priceDiscrepancyPercent(a, b) {
 }
 
 export function mergeMarketSources(ninjaItems, watchItems) {
-  const watchByName = new Map(watchItems.map((item) => [normalizedName(item.name), item]));
+  const watchByVariant = new Map();
+  const watchByName = new Map();
+  for (const item of watchItems) {
+    const variantKey = marketVariantKey(item);
+    if (variantKey) watchByVariant.set(variantKey, item);
+    const nameKey = normalizedName(item.name);
+    if (!watchByName.has(nameKey)) watchByName.set(nameKey, []);
+    watchByName.get(nameKey).push(item);
+  }
+
   return ninjaItems.map((item) => {
-    const watch = watchByName.get(normalizedName(item.name));
+    const exact = watchByVariant.get(marketVariantKey(item));
+    const sameName = watchByName.get(normalizedName(item.name)) ?? [];
+    // For gems and other explicit variants, a name-only match can compare the
+    // wrong level/quality/corruption. Only use it when both sides are generic.
+    const fallback = !hasVariantMetadata(item)
+      ? sameName.find((candidate) => !hasVariantMetadata(candidate)) ?? sameName[0]
+      : undefined;
+    const watch = exact ?? fallback;
     const ninjaPrice = finiteNumber(item.ninjaPrice, item.price);
     const watchPrice = finiteNumber(watch?.watchPrice, watch?.price);
     return {
@@ -262,28 +327,56 @@ export function buildEssencePairs(items) {
   return pairs;
 }
 
-function marketMap(items = []) {
+function marketIndex(items = []) {
   const result = new Map();
   for (const item of items) {
     const key = normalizedName(item?.name);
     if (!key) continue;
-    const existing = result.get(key);
-    if (!existing || Number(item?.volume ?? 0) > Number(existing?.volume ?? 0)) result.set(key, item);
+    if (!result.has(key)) result.set(key, []);
+    result.get(key).push(item);
+  }
+  for (const candidates of result.values()) {
+    candidates.sort((a, b) => Number(b?.volume ?? 0) - Number(a?.volume ?? 0) || Number(a?.price ?? Infinity) - Number(b?.price ?? Infinity));
   }
   return result;
 }
 
+function constraintMatches(item, constraints = {}) {
+  const checks = [
+    ["gemLevel", optionalNumber],
+    ["gemQuality", optionalNumber],
+    ["links", optionalNumber]
+  ];
+  for (const [key, parser] of checks) {
+    if (constraints[key] === undefined) continue;
+    const actual = parser(item?.[key]);
+    const expected = parser(constraints[key]);
+    if (!Number.isFinite(actual) || actual !== expected) return false;
+  }
+  if (constraints.corrupted !== undefined) {
+    if (optionalBoolean(item?.corrupted) !== Boolean(constraints.corrupted)) return false;
+  }
+  if (constraints.variant !== undefined && normalizedName(item?.variant) !== normalizedName(constraints.variant)) return false;
+  if (constraints.baseType !== undefined && normalizedName(item?.baseType) !== normalizedName(constraints.baseType)) return false;
+  return true;
+}
+
+function selectMarketCandidate(index, name, constraints) {
+  const candidates = index.get(normalizedName(name)) ?? [];
+  return candidates.find((item) => constraintMatches(item, constraints));
+}
+
 export function buildFixedRewardCardPairs(cardItems, marketsByCategory, catalog) {
-  const cardsByName = marketMap(cardItems);
+  const cardsByName = marketIndex(cardItems);
   const outputMaps = new Map(
-    Object.entries(marketsByCategory ?? {}).map(([category, items]) => [category, marketMap(items)])
+    Object.entries(marketsByCategory ?? {}).map(([category, items]) => [category, marketIndex(items)])
   );
   const pairs = [];
 
   for (const entry of catalog ?? []) {
     const outputCategory = entry.rewardMarketCategory ?? entry.outputCategory ?? "currency";
-    const input = cardsByName.get(normalizedName(entry.name));
-    const output = outputMaps.get(outputCategory)?.get(normalizedName(entry.rewardName));
+    const input = selectMarketCandidate(cardsByName, entry.name, entry.cardConstraints);
+    const output = selectMarketCandidate(outputMaps.get(outputCategory) ?? new Map(), entry.rewardName, entry.rewardConstraints);
     const stackSize = Number(entry.stackSize);
     const rewardQuantity = Number(entry.rewardQuantity ?? 1);
     if (!input || !output || !Number.isFinite(stackSize) || stackSize <= 0) continue;
@@ -297,7 +390,10 @@ export function buildFixedRewardCardPairs(cardItems, marketsByCategory, catalog)
       input,
       output,
       ratio: stackSize,
-      outputQuantity: rewardQuantity
+      outputQuantity: rewardQuantity,
+      rewardDescription: entry.rewardDescription ?? "",
+      rewardConstraints: entry.rewardConstraints ?? {},
+      catalogConfidence: entry.catalogConfidence ?? "high"
     });
   }
   return pairs;

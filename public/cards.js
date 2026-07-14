@@ -359,6 +359,100 @@ export const FIXED_SCARAB_CARD_CATALOG = Object.freeze([
   }
 ]);
 
+// Stage 3: exact named gems only. Generic/random gem rewards are excluded.
+// Every entry specifies level, quality and corruption state so a level-1 gem
+// cannot be compared with a level-4 or level-21 reward.
+export const FIXED_GEM_CARD_CATALOG = Object.freeze([
+  {
+    name: "A Chilling Wind", stackSize: 4, rewardName: "Vaal Cold Snap",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 21 · качество 20% · осквернён",
+    rewardConstraints: { gemLevel: 21, gemQuality: 20, corrupted: true }
+  },
+  {
+    name: "Bound by Flame", stackSize: 2, rewardName: "Flame Link",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 21 · качество 20%",
+    rewardConstraints: { gemLevel: 21, gemQuality: 20, corrupted: false }
+  },
+  {
+    name: "Grave Knowledge", stackSize: 6, rewardName: "Summon Raging Spirit",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 1 · качество 20%",
+    rewardConstraints: { gemLevel: 1, gemQuality: 20, corrupted: false }
+  },
+  {
+    name: "The Artist", stackSize: 11, rewardName: "Enhance Support",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 4 · осквернён",
+    rewardConstraints: { gemLevel: 4, gemQuality: 0, corrupted: true }
+  },
+  {
+    name: "The Bones", stackSize: 6, rewardName: "Vaal Summon Skeletons",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 21 · осквернён",
+    rewardConstraints: { gemLevel: 21, gemQuality: 0, corrupted: true }
+  },
+  {
+    name: "The Doppelganger", stackSize: 2, rewardName: "Mirror Arrow",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 1 · качество 20%",
+    rewardConstraints: { gemLevel: 1, gemQuality: 20, corrupted: false }
+  },
+  {
+    name: "The Dragon's Heart", stackSize: 11, rewardName: "Empower Support",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 4 · осквернён",
+    rewardConstraints: { gemLevel: 4, gemQuality: 0, corrupted: true }
+  },
+  {
+    name: "The Enlightened", stackSize: 6, rewardName: "Enlighten Support",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 3",
+    rewardConstraints: { gemLevel: 3, gemQuality: 0, corrupted: false }
+  },
+  {
+    name: "The Magma Crab", stackSize: 6, rewardName: "Vaal Molten Shell",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 21 · осквернён",
+    rewardConstraints: { gemLevel: 21, gemQuality: 0, corrupted: true }
+  },
+  {
+    name: "The Skeleton", stackSize: 6, rewardName: "Summon Skeletons",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 1 · качество 23% · осквернён",
+    rewardConstraints: { gemLevel: 1, gemQuality: 23, corrupted: true }
+  },
+  {
+    name: "Wealth and Power", stackSize: 11, rewardName: "Enlighten Support",
+    rewardMarketCategory: "skill-gem", rewardDescription: "Уровень 4 · осквернён",
+    rewardConstraints: { gemLevel: 4, gemQuality: 0, corrupted: true }
+  }
+]);
+
+// Stage 4: only a named, non-corrupted unique item with no special implicit,
+// fixed six-link, item-level or random-item condition. Equipment rolls still
+// vary, so these entries receive a medium catalogue confidence penalty.
+export const FIXED_UNIQUE_CARD_CATALOG = Object.freeze([
+  { name: "The Apothecary", stackSize: 5, rewardName: "Mageblood", rewardMarketCategory: "unique-accessory" },
+  { name: "The Doctor", stackSize: 8, rewardName: "Headhunter", rewardMarketCategory: "unique-accessory" },
+  { name: "A Dab of Ink", stackSize: 9, rewardName: "The Poet's Pen", rewardMarketCategory: "unique-weapon", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "A Note in the Wind", stackSize: 4, rewardName: "Asenath's Mark", rewardMarketCategory: "unique-armour", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "Alivia's Grace", stackSize: 6, rewardName: "Queen of the Forest", rewardMarketCategory: "unique-armour", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "Hunter's Reward", stackSize: 3, rewardName: "The Taming", rewardMarketCategory: "unique-accessory" },
+  { name: "The Beast", stackSize: 6, rewardName: "Belly of the Beast", rewardMarketCategory: "unique-armour", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "The Craving", stackSize: 4, rewardName: "Unending Hunger", rewardMarketCategory: "unique-jewel" },
+  { name: "The Deep Ones", stackSize: 5, rewardName: "Tidebreaker", rewardMarketCategory: "unique-weapon", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "The Hunger", stackSize: 9, rewardName: "Taste of Hate", rewardMarketCategory: "unique-flask" },
+  { name: "The Incantation", stackSize: 4, rewardName: "The Whispering Ice", rewardMarketCategory: "unique-weapon", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "The King's Heart", stackSize: 8, rewardName: "Kaom's Heart", rewardMarketCategory: "unique-armour", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "The Progeny of Lunaris", stackSize: 2, rewardName: "Dying Sun", rewardMarketCategory: "unique-flask" },
+  { name: "The Queen", stackSize: 16, rewardName: "Atziri's Acuity", rewardMarketCategory: "unique-armour", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "The Return of the Rat", stackSize: 3, rewardName: "Tavukai", rewardMarketCategory: "unique-accessory" },
+  { name: "The Shieldbearer", stackSize: 8, rewardName: "The Squire", rewardMarketCategory: "unique-armour", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "The Visionary", stackSize: 6, rewardName: "Lioneye's Vision", rewardMarketCategory: "unique-armour", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "The Witch", stackSize: 8, rewardName: "Kiara's Determination", rewardMarketCategory: "unique-flask" },
+  { name: "Tranquillity", stackSize: 7, rewardName: "Voltaxic Rift", rewardMarketCategory: "unique-weapon", rewardConstraints: { corrupted: false, links: 0 } },
+  { name: "The Life Thief", stackSize: 6, rewardName: "Zerphi's Heart", rewardMarketCategory: "unique-accessory" },
+  { name: "The Harvester", stackSize: 11, rewardName: "The Harvest", rewardMarketCategory: "unique-weapon", rewardConstraints: { corrupted: false, links: 0 } }
+].map((entry) => ({
+  ...entry,
+  rewardQuantity: 1,
+  rewardConstraints: { corrupted: false, ...(entry.rewardConstraints ?? {}) },
+  rewardDescription: "Точный уникальный предмет · обычная неосквернённая версия",
+  catalogConfidence: "medium"
+})));
+
 export const FIXED_CARD_REWARD_CATALOG = Object.freeze([
   ...FIXED_CURRENCY_CARD_CATALOG.map((entry) => ({
     ...entry,
@@ -372,5 +466,13 @@ export const FIXED_CARD_REWARD_CATALOG = Object.freeze([
   ...FIXED_SCARAB_CARD_CATALOG.map((entry) => ({
     ...entry,
     cardCategory: "scarab"
+  })),
+  ...FIXED_GEM_CARD_CATALOG.map((entry) => ({
+    ...entry,
+    cardCategory: "gem"
+  })),
+  ...FIXED_UNIQUE_CARD_CATALOG.map((entry) => ({
+    ...entry,
+    cardCategory: "unique"
   }))
 ]);

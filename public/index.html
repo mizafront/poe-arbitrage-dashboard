@@ -12,7 +12,7 @@
     <div>
       <p class="eyebrow">PATH OF EXILE 1 · ECONOMY LAB</p>
       <h1>Arbitrage Dashboard</h1>
-      <p class="subtitle">Сравнивает poe.ninja и poe.watch, оценивает расхождение, объём, изменение за 24 часа и тренд за 7 дней.</p>
+      <p class="subtitle">Сравнивает poe.ninja и poe.watch, диагностирует фильтры и оценивает точные награды карточек: валюту, карты, скарабы, камни и уникальные предметы.</p>
     </div>
     <div class="header-actions">
       <button id="exportButton" class="secondary-button" type="button">Экспорт CSV</button>
@@ -118,7 +118,9 @@
         <button class="card-subtab" type="button" role="tab" data-card-category="currency" aria-selected="false">Валюта</button>
         <button class="card-subtab" type="button" role="tab" data-card-category="map-fragment" aria-selected="false">Карты и фрагменты</button>
         <button class="card-subtab" type="button" role="tab" data-card-category="scarab" aria-selected="false">Скарабы</button>
-        <span class="card-subtabs-note">Камни и уникальные предметы добавим следующими этапами.</span>
+        <button class="card-subtab" type="button" role="tab" data-card-category="gem" aria-selected="false">Камни</button>
+        <button class="card-subtab" type="button" role="tab" data-card-category="unique" aria-selected="false">Уникальные предметы</button>
+        <span class="card-subtabs-note">Случайные награды и обычная экипировка не учитываются.</span>
       </div>
 
       <div class="table-toolbar">
@@ -140,9 +142,12 @@
               <option value="cost">По затратам</option>
             </select>
           </label>
+          <button id="resetFiltersButton" class="secondary-button compact-button" type="button">Показать всё</button>
           <button id="clearHistoryButton" class="text-button" type="button">Очистить историю</button>
         </div>
       </div>
+
+      <div id="filterDiagnostics" class="filter-diagnostics" aria-live="polite"></div>
 
       <div class="table-wrapper">
         <table>
@@ -174,7 +179,7 @@
     </section>
 
     <section class="notice">
-      <strong>Как работает двойная проверка:</strong> poe.ninja ищет кандидатов, poe.watch подтверждает цену и добавляет объём, изменение за 24 часа и историю. При включённом консервативном режиме стоимость покупки берётся по более высокой цене из двух источников, а стоимость продажи — по более низкой. Для карточек сейчас учитываются только фиксированные валютные награды, конкретные карты/фрагменты и конкретные скарабы. Случайные награды и экипировка намеренно исключены.
+      <strong>Как работает проверка:</strong> poe.ninja ищет кандидатов, poe.watch подтверждает цену и добавляет объём, изменение за 24 часа и историю. Для камней обязательно совпадают название, уровень, качество и осквернение. Для уникальных предметов учитывается только точная обычная неосквернённая версия; оценка надёжности снижена из-за разброса роллов. Случайные награды и обычная экипировка исключены.
     </section>
   </main>
 
