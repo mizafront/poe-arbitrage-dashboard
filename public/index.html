@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Поиск арбитражных рецептов масел и эссенций Path of Exile по данным poe.ninja">
+  <title>PoE Arbitrage Dashboard</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">PATH OF EXILE 1 · ECONOMY LAB</p>
+      <h1>Arbitrage Dashboard</h1>
+      <p class="subtitle">Ищет потенциально выгодные рецепты 3 → 1, учитывает запас на покупку и продажу, бюджет и устойчивость цены.</p>
+    </div>
+    <div class="header-actions">
+      <button id="exportButton" class="secondary-button" type="button">Экспорт CSV</button>
+      <button id="refreshButton" class="primary-button" type="button">Обновить цены</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel controls" aria-label="Настройки расчёта">
+      <label>
+        Лига
+        <input id="leagueInput" list="leagueOptions" value="Mirage" autocomplete="off">
+        <datalist id="leagueOptions"></datalist>
+      </label>
+      <label>
+        Бюджет, chaos
+        <input id="budget" type="number" min="0" step="10" value="100">
+      </label>
+      <label>
+        Мин. прибыль, chaos
+        <input id="minProfit" type="number" min="0" step="0.1" value="1">
+      </label>
+      <label>
+        Мин. ROI, %
+        <input id="minRoi" type="number" min="0" step="1" value="10">
+      </label>
+      <label>
+        Мин. стабильность
+        <select id="minStability">
+          <option value="1" selected>1 замер</option>
+          <option value="2">2 замера</option>
+          <option value="3">3 замера</option>
+          <option value="6">6 замеров</option>
+        </select>
+      </label>
+      <label>
+        Наценка покупки, %
+        <input id="buyPremium" type="number" min="0" max="100" step="1" value="5">
+      </label>
+      <label>
+        Скидка продажи, %
+        <input id="sellDiscount" type="number" min="0" max="100" step="1" value="10">
+      </label>
+      <label>
+        Автообновление
+        <select id="autoRefresh">
+          <option value="0">Выключено</option>
+          <option value="5" selected>Каждые 5 минут</option>
+          <option value="15">Каждые 15 минут</option>
+          <option value="30">Каждые 30 минут</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="summary-grid" aria-label="Сводка">
+      <article class="summary-card">
+        <span>Найдено операций</span>
+        <strong id="opportunityCount">—</strong>
+      </article>
+      <article class="summary-card">
+        <span>Лучшая прибыль за операцию</span>
+        <strong id="bestProfit">—</strong>
+      </article>
+      <article class="summary-card">
+        <span>Лучшая прибыль на бюджет</span>
+        <strong id="bestBudgetProfit">—</strong>
+      </article>
+      <article class="summary-card">
+        <span>Стабильных возможностей</span>
+        <strong id="stableCount">—</strong>
+      </article>
+      <article class="summary-card">
+        <span>Последнее обновление</span>
+        <strong id="updatedAt">—</strong>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="tabs" role="tablist" aria-label="Категории">
+        <button class="tab active" type="button" role="tab" data-category="all" aria-selected="true">Все</button>
+        <button class="tab" type="button" role="tab" data-category="oil" aria-selected="false">Масла</button>
+        <button class="tab" type="button" role="tab" data-category="essence" aria-selected="false">Эссенции</button>
+      </div>
+
+      <div class="table-toolbar">
+        <div>
+          <p id="status" class="status">Подготовка…</p>
+          <p id="countdown" class="countdown"></p>
+        </div>
+        <div class="toolbar-controls">
+          <label class="sort-label">
+            Сортировка
+            <select id="sortSelect">
+              <option value="confidence">По надёжности</option>
+              <option value="profit">По прибыли</option>
+              <option value="roi">По ROI</option>
+              <option value="budgetProfit">По прибыли на бюджет</option>
+              <option value="stability">По стабильности</option>
+              <option value="cost">По затратам</option>
+            </select>
+          </label>
+          <button id="clearHistoryButton" class="text-button" type="button">Очистить историю</button>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Категория</th>
+              <th>Покупка</th>
+              <th>Результат</th>
+              <th class="number">Затраты</th>
+              <th class="number">Быстрая продажа</th>
+              <th class="number">Прибыль</th>
+              <th class="number">ROI</th>
+              <th class="number">На бюджет</th>
+              <th class="number">Стабильность</th>
+              <th class="number">Тренд маржи</th>
+              <th class="number">Доверие</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody">
+            <tr>
+              <td colspan="11" class="empty-state">Данные ещё не загружены.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="notice">
+      <strong>Как читать результат:</strong> расчёт использует агрегированную цену poe.ninja. «Стабильность» — сколько последовательных сохранённых замеров сделка оставалась прибыльной. «На бюджет» — теоретический результат без проверки доступного объёма товара.
+    </section>
+  </main>
+
+  <footer>
+    Данные: poe.ninja. This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
