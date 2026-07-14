@@ -264,3 +264,113 @@ export const FIXED_CURRENCY_CARD_CATALOG = Object.freeze(
   }
 ]
 );
+
+// Stage 2: only deterministic map/fragment rewards with a single named market result.
+// Random maps, random fragments, corrupted/special map variants and equipment are excluded.
+export const FIXED_MAP_FRAGMENT_CARD_CATALOG = Object.freeze([
+  {
+    name: "Altered Perception",
+    stackSize: 3,
+    rewardName: "Simulacrum",
+    rewardQuantity: 1,
+    rewardMarketCategory: "fragment"
+  },
+  {
+    name: "Boon of Justice",
+    stackSize: 6,
+    rewardName: "Offering to the Goddess",
+    rewardQuantity: 1,
+    rewardMarketCategory: "fragment"
+  },
+  {
+    name: "Checkmate",
+    stackSize: 8,
+    rewardName: "Simulacrum Splinter",
+    rewardQuantity: 76,
+    rewardMarketCategory: "fragment"
+  },
+  {
+    name: "Last Hope",
+    stackSize: 3,
+    rewardName: "Mortal Hope",
+    rewardQuantity: 1,
+    rewardMarketCategory: "fragment"
+  },
+  {
+    name: "Eternal Bonds",
+    stackSize: 4,
+    rewardName: "Replica Cortex",
+    rewardQuantity: 1,
+    rewardMarketCategory: "unique-map"
+  },
+  {
+    name: "Scholar of the Seas",
+    stackSize: 7,
+    rewardName: "Mao Kun",
+    rewardQuantity: 1,
+    rewardMarketCategory: "unique-map"
+  },
+  {
+    name: "The Professor",
+    stackSize: 4,
+    rewardName: "The Putrid Cloister",
+    rewardQuantity: 1,
+    rewardMarketCategory: "unique-map"
+  },
+  {
+    name: "The Wolf's Legacy",
+    stackSize: 4,
+    rewardName: "Vaults of Atziri",
+    rewardQuantity: 1,
+    rewardMarketCategory: "unique-map"
+  }
+]);
+
+// Only scarabs with an exact, named reward are included.
+// Generic "Scarab" and "Horned Scarab" rewards are deliberately excluded.
+export const FIXED_SCARAB_CARD_CATALOG = Object.freeze([
+  {
+    name: "Buried Treasure",
+    stackSize: 3,
+    rewardName: "Sulphite Scarab",
+    rewardQuantity: 1,
+    rewardMarketCategory: "scarab"
+  },
+  {
+    name: "Man With Bear",
+    stackSize: 3,
+    rewardName: "Bestiary Scarab",
+    rewardQuantity: 1,
+    rewardMarketCategory: "scarab"
+  },
+  {
+    name: "The Card Sharp",
+    stackSize: 4,
+    rewardName: "Divination Scarab",
+    rewardQuantity: 1,
+    rewardMarketCategory: "scarab"
+  },
+  {
+    name: "The Deal",
+    stackSize: 5,
+    rewardName: "Cartography Scarab",
+    rewardQuantity: 1,
+    rewardMarketCategory: "scarab"
+  }
+]);
+
+export const FIXED_CARD_REWARD_CATALOG = Object.freeze([
+  ...FIXED_CURRENCY_CARD_CATALOG.map((entry) => ({
+    ...entry,
+    cardCategory: "currency",
+    rewardMarketCategory: "currency"
+  })),
+  ...FIXED_MAP_FRAGMENT_CARD_CATALOG.map((entry) => ({
+    ...entry,
+    cardCategory: "map-fragment"
+  })),
+  ...FIXED_SCARAB_CARD_CATALOG.map((entry) => ({
+    ...entry,
+    cardCategory: "scarab"
+  }))
+]);

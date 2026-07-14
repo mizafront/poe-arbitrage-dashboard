@@ -2,7 +2,7 @@
 
 import {
   buildEssencePairs,
-  buildFixedCurrencyCardPairs,
+  buildFixedRewardCardPairs,
   buildOilPairs,
   calculateOpportunity,
   mergeMarketSources,
@@ -10,10 +10,10 @@ import {
   normalizePoeWatch,
   recipeKey
 } from "./core.js";
-import { FIXED_CURRENCY_CARD_CATALOG } from "./cards.js";
+import { FIXED_CARD_REWARD_CATALOG } from "./cards.js";
 
-const SETTINGS_KEY = "poe-arbitrage-settings:v3";
-const HISTORY_PREFIX = "poe-arbitrage-history:v3:";
+const SETTINGS_KEY = "poe-arbitrage-settings:v4";
+const HISTORY_PREFIX = "poe-arbitrage-history:v4:";
 const MAX_HISTORY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_HISTORY_SNAPSHOTS = 600;
 const DEMO_MODE = new URLSearchParams(window.location.search).get("demo") === "1";
@@ -23,6 +23,7 @@ const state = {
   rows: [],
   history: [],
   activeCategory: "all",
+  activeCardCategory: "all",
   sourcePrimary: "Chaos Orb",
   watchAvailable: false,
   watchItemCount: 0,
@@ -58,7 +59,9 @@ const elements = {
   stableCount: document.querySelector("#stableCount"),
   confirmedCount: document.querySelector("#confirmedCount"),
   updated: document.querySelector("#updatedAt"),
-  tabs: [...document.querySelectorAll(".tab")]
+  tabs: [...document.querySelectorAll(".tab")],
+  cardSubtabsContainer: document.querySelector("#cardSubtabs"),
+  cardTabs: [...document.querySelectorAll(".card-subtab")]
 };
 
 function numberInput(element, fallback = 0) {
@@ -241,6 +244,7 @@ function currentRows() {
   const currentSettings = settings();
   return state.rows
     .filter((row) => state.activeCategory === "all" || row.category === state.activeCategory)
+    .filter((row) => state.activeCategory !== "card" || state.activeCardCategory === "all" || row.cardCategory === state.activeCardCategory)
     .filter((row) => row.profit >= currentSettings.minProfit)
     .filter((row) => row.roi >= currentSettings.minRoi)
     .filter((row) => row.streak >= currentSettings.minStability)
@@ -359,7 +363,16 @@ function render() {
   }
 
   elements.body.innerHTML = rows.map((row) => {
-    const label = row.category === "oil" ? "Масло" : row.category === "essence" ? "Эссенция" : "Карточка";
+    const cardLabels = {
+      currency: "Карточка · Валюта",
+      "map-fragment": "Карточка · Карта/фрагмент",
+      scarab: "Карточка · Скараб"
+    };
+    const label = row.category === "oil"
+      ? "Масло"
+      : row.category === "essence"
+        ? "Эссенция"
+        : cardLabels[row.cardCategory] ?? "Карточка";
     const profitClass = row.profit >= 0 ? "profit" : "loss";
     const budgetText = row.maxOperations > 0
       ? `${formatChaos(row.budgetProfit)}<small class="item-price">${row.maxOperations} оп.</small>`
@@ -410,11 +423,27 @@ function demoPayload(type) {
     ],
     DivinationCard: [
       ["The Wrath", 0.82, 190], ["The Fortunate", 18, 130], ["Rain of Chaos", 0.18, 400],
-      ["The Hoarder", 3.2, 170], ["Lucky Connections", 1.1, 90], ["The Seeker", 9, 55]
+      ["The Hoarder", 3.2, 170], ["Lucky Connections", 1.1, 90], ["The Seeker", 9, 55],
+      ["Altered Perception", 14, 80], ["Boon of Justice", 2.2, 110], ["Checkmate", 0.32, 150],
+      ["Last Hope", 5, 70], ["Eternal Bonds", 19, 42], ["Scholar of the Seas", 1.1, 65],
+      ["The Professor", 3.5, 55], ["The Wolf's Legacy", 1.8, 48], ["Buried Treasure", 0.21, 180],
+      ["Man With Bear", 0.28, 160], ["The Card Sharp", 0.35, 145], ["The Deal", 0.4, 130]
     ],
     Currency: [
       ["Chaos Orb", 1, 10000], ["Divine Orb", 150, 3400], ["Exalted Orb", 12, 3100],
       ["Orb of Fusing", 0.24, 7000], ["Orb of Annulment", 28, 900]
+    ],
+    Fragment: [
+      ["Simulacrum", 58, 780], ["Offering to the Goddess", 19, 1300],
+      ["Simulacrum Splinter", 0.11, 12000], ["Mortal Hope", 31, 640]
+    ],
+    UniqueMap: [
+      ["Replica Cortex", 115, 95], ["Mao Kun", 12, 420],
+      ["The Putrid Cloister", 22, 250], ["Vaults of Atziri", 11, 300]
+    ],
+    Scarab: [
+      ["Sulphite Scarab", 1.4, 2500], ["Bestiary Scarab", 1.7, 2200],
+      ["Divination Scarab", 2.2, 1850], ["Cartography Scarab", 2.6, 2100]
     ]
   };
   const items = {};
@@ -438,8 +467,18 @@ function demoWatchPayload() {
     ["Shrieking Essence of Wrath", 14.7, 710, -2.3], ["Deafening Essence of Wrath", 50, 590, 1.8],
     ["The Wrath", 0.86, 170, 4.4], ["The Fortunate", 18.6, 120, 8.1], ["Rain of Chaos", 0.19, 390, -1.4],
     ["The Hoarder", 3.1, 150, 3.2], ["Lucky Connections", 1.12, 88, 2.1], ["The Seeker", 8.7, 52, -4.2],
+    ["Altered Perception", 14.5, 75, 6.2], ["Boon of Justice", 2.3, 105, 1.4], ["Checkmate", 0.34, 142, -0.8],
+    ["Last Hope", 5.2, 68, 4.3], ["Eternal Bonds", 20, 40, 7.1], ["Scholar of the Seas", 1.15, 61, -2.0],
+    ["The Professor", 3.6, 51, 2.4], ["The Wolf's Legacy", 1.9, 44, -1.2], ["Buried Treasure", 0.22, 170, 3.1],
+    ["Man With Bear", 0.29, 152, 1.8], ["The Card Sharp", 0.36, 138, 5.2], ["The Deal", 0.42, 125, -0.5],
     ["Chaos Orb", 1, 30000, 0], ["Divine Orb", 148, 9500, 2.2], ["Exalted Orb", 12.4, 8700, -1.1],
-    ["Orb of Fusing", 0.25, 12000, 3.6], ["Orb of Annulment", 27.5, 3200, -2.2]
+    ["Orb of Fusing", 0.25, 12000, 3.6], ["Orb of Annulment", 27.5, 3200, -2.2],
+    ["Simulacrum", 56, 760, 4.1], ["Offering to the Goddess", 18.5, 1260, -1.1],
+    ["Simulacrum Splinter", 0.105, 11800, 2.3], ["Mortal Hope", 30, 610, 5.0],
+    ["Replica Cortex", 112, 90, 4.7], ["Mao Kun", 11.5, 405, -2.3],
+    ["The Putrid Cloister", 21, 238, 1.2], ["Vaults of Atziri", 10.5, 286, -1.8],
+    ["Sulphite Scarab", 1.35, 2380, 2.0], ["Bestiary Scarab", 1.65, 2100, 3.5],
+    ["Divination Scarab", 2.1, 1760, 4.8], ["Cartography Scarab", 2.5, 1980, -0.9]
   ];
   return {
     items: base.map(([name, mean, volume, change24h], index) => ({
@@ -490,14 +529,28 @@ async function refreshData({ silent = false } = {}) {
   }
 
   try {
-    const ninjaPayloads = DEMO_MODE
-      ? [demoPayload("Oil"), demoPayload("Essence"), demoPayload("DivinationCard"), demoPayload("Currency")]
-      : await Promise.all([
-          fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=Oil`),
-          fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=Essence`),
-          fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=DivinationCard`),
-          fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=Currency`)
-        ]);
+    const ninjaTypes = [
+      { key: "oil", type: "Oil", optional: false },
+      { key: "essence", type: "Essence", optional: false },
+      { key: "card", type: "DivinationCard", optional: false },
+      { key: "currency", type: "Currency", optional: false },
+      { key: "fragment", type: "Fragment", optional: true },
+      { key: "uniqueMap", type: "UniqueMap", optional: true },
+      { key: "scarab", type: "Scarab", optional: true }
+    ];
+    const optionalErrors = [];
+    const payloadEntries = await Promise.all(ninjaTypes.map(async ({ key, type, optional }) => {
+      if (DEMO_MODE) return [key, demoPayload(type)];
+      try {
+        return [key, await fetchJson(`/api/prices?league=${encodeURIComponent(league)}&type=${encodeURIComponent(type)}`)];
+      } catch (error) {
+        if (!optional) throw error;
+        optionalErrors.push(`${type}: ${error.message}`);
+        console.warn(`Не удалось загрузить необязательную категорию ${type}:`, error);
+        return [key, { lines: [] }];
+      }
+    }));
+    const ninjaPayloads = Object.fromEntries(payloadEntries);
 
     let watchPayload = null;
     let watchError = null;
@@ -508,38 +561,61 @@ async function refreshData({ silent = false } = {}) {
       console.warn("poe.watch недоступен, продолжаю только с poe.ninja:", error);
     }
 
-    const [oilPayload, essencePayload, cardPayload, currencyPayload] = ninjaPayloads;
-    const oilsNormalized = normalizeExchange(oilPayload);
-    const essencesNormalized = normalizeExchange(essencePayload);
-    const cardsNormalized = normalizeExchange(cardPayload);
-    const currencyNormalized = normalizeExchange(currencyPayload);
+    const normalized = Object.fromEntries(
+      Object.entries(ninjaPayloads).map(([key, payload]) => [key, normalizeExchange(payload)])
+    );
     const watchItems = watchPayload ? normalizePoeWatch(watchPayload) : [];
 
-    const oils = mergeMarketSources(oilsNormalized.items, watchItems);
-    const essences = mergeMarketSources(essencesNormalized.items, watchItems);
-    const cards = mergeMarketSources(cardsNormalized.items, watchItems);
-    const currencies = mergeMarketSources(currencyNormalized.items, watchItems);
+    const oils = mergeMarketSources(normalized.oil.items, watchItems);
+    const essences = mergeMarketSources(normalized.essence.items, watchItems);
+    const cards = mergeMarketSources(normalized.card.items, watchItems);
+    const currencies = mergeMarketSources(normalized.currency.items, watchItems);
+    const fragments = mergeMarketSources(normalized.fragment.items, watchItems);
+    const uniqueMaps = mergeMarketSources(normalized.uniqueMap.items, watchItems);
+    const scarabs = mergeMarketSources(normalized.scarab.items, watchItems);
 
-    const allMerged = [...oils, ...essences, ...cards, ...currencies];
+    const allMerged = [...oils, ...essences, ...cards, ...currencies, ...fragments, ...uniqueMaps, ...scarabs];
     state.watchAvailable = watchItems.length > 0;
     state.watchItemCount = watchItems.length;
     state.watchMatchCount = allMerged.filter((item) => item.sources === 2).length;
-    state.sourcePrimary = oilsNormalized.primaryName || essencesNormalized.primaryName || cardsNormalized.primaryName || currencyNormalized.primaryName || "Chaos Orb";
+    state.sourcePrimary = Object.values(normalized).map((entry) => entry.primaryName).find(Boolean) || "Chaos Orb";
 
-    const cardPairs = buildFixedCurrencyCardPairs(cards, currencies, FIXED_CURRENCY_CARD_CATALOG);
+    const cardPairs = buildFixedRewardCardPairs(cards, {
+      currency: currencies,
+      fragment: fragments,
+      "unique-map": uniqueMaps,
+      scarab: scarabs
+    }, FIXED_CARD_REWARD_CATALOG);
+    const cardCounts = cardPairs.reduce((acc, pair) => {
+      acc[pair.cardCategory] = (acc[pair.cardCategory] ?? 0) + 1;
+      return acc;
+    }, {});
+
     state.pairs = [...buildOilPairs(oils), ...buildEssencePairs(essences), ...cardPairs];
     state.history = loadHistory(league);
-    appendSnapshot(league, createSnapshot({ oil: oils, essence: essences, card: cards, currency: currencies }));
+    appendSnapshot(league, createSnapshot({
+      oil: oils,
+      essence: essences,
+      card: cards,
+      currency: currencies,
+      fragment: fragments,
+      "unique-map": uniqueMaps,
+      scarab: scarabs
+    }));
     recalculateRows();
     saveSettings();
 
     const now = new Date();
     elements.updated.textContent = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-    elements.status.className = watchError ? "status warning" : "status success";
+    const hasWarning = Boolean(watchError || optionalErrors.length);
+    elements.status.className = hasWarning ? "status warning" : "status success";
     const watchText = watchError
       ? `poe.watch недоступен: используется только poe.ninja. ${watchError.message}`
       : `poe.watch: ${watchItems.length} позиций, совпало ${state.watchMatchCount}.`;
-    elements.status.textContent = `${DEMO_MODE ? "Демо. " : ""}poe.ninja: ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек, ${currencies.length} валют. ${watchText} Карточных цепочек: ${cardPairs.length}. История: ${state.history.length}.`;
+    const optionalText = optionalErrors.length
+      ? ` Не загрузились необязательные категории: ${optionalErrors.join("; ")}.`
+      : "";
+    elements.status.textContent = `${DEMO_MODE ? "Демо. " : ""}poe.ninja: ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек, ${currencies.length} валют, ${fragments.length} фрагментов, ${uniqueMaps.length} уникальных карт, ${scarabs.length} позиций scarab. ${watchText}${optionalText} Карточные цепочки: ${cardPairs.length} (валюта ${cardCounts.currency ?? 0}, карты/фрагменты ${cardCounts["map-fragment"] ?? 0}, скарабы ${cardCounts.scarab ?? 0}). История: ${state.history.length}.`;
     render();
     scheduleAutoRefresh();
   } catch (error) {
@@ -590,12 +666,13 @@ function exportCsv() {
   const rows = currentRows();
   if (!rows.length) return;
   const headers = [
-    "Категория", "Покупка", "Результат", "Ninja вход", "Watch вход", "Ninja выход", "Watch выход",
+    "Категория", "Подкатегория карточек", "Покупка", "Результат", "Ninja вход", "Watch вход", "Ninja выход", "Watch выход",
     "Расхождение %", "Watch объём", "Вход 24ч %", "Выход 24ч %", "Затраты chaos", "Продажа chaos",
     "Прибыль chaos", "ROI %", "Операций", "Прибыль на бюджет", "Стабильность", "Замеров", "Доверие"
   ];
   const data = rows.map((row) => [
     row.category,
+    row.cardCategory ?? "",
     `${row.ratio} x ${row.input.name}`,
     `${row.outputQuantity ?? 1} x ${row.output.name}`,
     row.input.ninjaPrice, row.input.watchPrice, row.output.ninjaPrice, row.output.watchPrice,
@@ -655,10 +732,28 @@ elements.clearHistory.addEventListener("click", clearHistory);
 elements.league.addEventListener("change", () => refreshData());
 elements.league.addEventListener("keydown", (event) => { if (event.key === "Enter") refreshData(); });
 
+function syncCardSubtabs() {
+  if (!elements.cardSubtabsContainer) return;
+  elements.cardSubtabsContainer.hidden = state.activeCategory !== "card";
+}
+
 elements.tabs.forEach((tab) => {
   tab.addEventListener("click", () => {
     state.activeCategory = tab.dataset.category;
     for (const item of elements.tabs) {
+      const active = item === tab;
+      item.classList.toggle("active", active);
+      item.setAttribute("aria-selected", String(active));
+    }
+    syncCardSubtabs();
+    render();
+  });
+});
+
+elements.cardTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    state.activeCardCategory = tab.dataset.cardCategory;
+    for (const item of elements.cardTabs) {
       const active = item === tab;
       item.classList.toggle("active", active);
       item.setAttribute("aria-selected", String(active));
@@ -675,6 +770,7 @@ document.addEventListener("visibilitychange", () => {
 
 (async function init() {
   loadSettings();
+  syncCardSubtabs();
   await loadLeagues();
   await refreshData();
 })();

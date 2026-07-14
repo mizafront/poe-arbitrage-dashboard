@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Поиск арбитражных рецептов Path of Exile по данным poe.ninja и poe.watch">
+  <meta name="description" content="Поиск арбитражных рецептов Path of Exile: масла, эссенции и фиксированные награды divination cards">
   <title>PoE Arbitrage Dashboard</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -105,11 +105,20 @@
     </section>
 
     <section class="panel">
-      <div class="tabs" role="tablist" aria-label="Категории">
+      <div class="tabs" role="tablist" aria-label="Основные категории">
         <button class="tab active" type="button" role="tab" data-category="all" aria-selected="true">Все</button>
         <button class="tab" type="button" role="tab" data-category="oil" aria-selected="false">Масла</button>
         <button class="tab" type="button" role="tab" data-category="essence" aria-selected="false">Эссенции</button>
         <button class="tab" type="button" role="tab" data-category="card" aria-selected="false">Карточки</button>
+      </div>
+
+      <div id="cardSubtabs" class="card-subtabs" role="tablist" aria-label="Тип награды карточек" hidden>
+        <span class="card-subtabs-label">Награда:</span>
+        <button class="card-subtab active" type="button" role="tab" data-card-category="all" aria-selected="true">Все карточки</button>
+        <button class="card-subtab" type="button" role="tab" data-card-category="currency" aria-selected="false">Валюта</button>
+        <button class="card-subtab" type="button" role="tab" data-card-category="map-fragment" aria-selected="false">Карты и фрагменты</button>
+        <button class="card-subtab" type="button" role="tab" data-card-category="scarab" aria-selected="false">Скарабы</button>
+        <span class="card-subtabs-note">Камни и уникальные предметы добавим следующими этапами.</span>
       </div>
 
       <div class="table-toolbar">
@@ -165,7 +174,7 @@
     </section>
 
     <section class="notice">
-      <strong>Как работает двойная проверка:</strong> poe.ninja ищет кандидатов, poe.watch подтверждает цену и добавляет объём, изменение за 24 часа и историю. При включённом консервативном режиме стоимость покупки берётся по более высокой цене из двух источников, а стоимость продажи — по более низкой. Если poe.watch недоступен, сайт продолжит работу по poe.ninja и покажет «1 источник».
+      <strong>Как работает двойная проверка:</strong> poe.ninja ищет кандидатов, poe.watch подтверждает цену и добавляет объём, изменение за 24 часа и историю. При включённом консервативном режиме стоимость покупки берётся по более высокой цене из двух источников, а стоимость продажи — по более низкой. Для карточек сейчас учитываются только фиксированные валютные награды, конкретные карты/фрагменты и конкретные скарабы. Случайные награды и экипировка намеренно исключены.
     </section>
   </main>
 

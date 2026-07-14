@@ -262,23 +262,54 @@ export function buildEssencePairs(items) {
   return pairs;
 }
 
-export function buildFixedCurrencyCardPairs(cardItems, currencyItems, catalog) {
-  const cardsByName = new Map(cardItems.map((item) => [item.name, item]));
-  const currencyByName = new Map(currencyItems.map((item) => [item.name, item]));
+function marketMap(items = []) {
+  const result = new Map();
+  for (const item of items) {
+    const key = normalizedName(item?.name);
+    if (!key) continue;
+    const existing = result.get(key);
+    if (!existing || Number(item?.volume ?? 0) > Number(existing?.volume ?? 0)) result.set(key, item);
+  }
+  return result;
+}
+
+export function buildFixedRewardCardPairs(cardItems, marketsByCategory, catalog) {
+  const cardsByName = marketMap(cardItems);
+  const outputMaps = new Map(
+    Object.entries(marketsByCategory ?? {}).map(([category, items]) => [category, marketMap(items)])
+  );
   const pairs = [];
-  for (const entry of catalog) {
-    const input = cardsByName.get(entry.name);
-    const output = currencyByName.get(entry.rewardName);
+
+  for (const entry of catalog ?? []) {
+    const outputCategory = entry.rewardMarketCategory ?? entry.outputCategory ?? "currency";
+    const input = cardsByName.get(normalizedName(entry.name));
+    const output = outputMaps.get(outputCategory)?.get(normalizedName(entry.rewardName));
     const stackSize = Number(entry.stackSize);
-    const rewardQuantity = Number(entry.rewardQuantity);
+    const rewardQuantity = Number(entry.rewardQuantity ?? 1);
     if (!input || !output || !Number.isFinite(stackSize) || stackSize <= 0) continue;
     if (!Number.isFinite(rewardQuantity) || rewardQuantity <= 0) continue;
+
     pairs.push({
-      category: "card", inputCategory: "card", outputCategory: "currency",
-      input, output, ratio: stackSize, outputQuantity: rewardQuantity
+      category: "card",
+      cardCategory: entry.cardCategory ?? "currency",
+      inputCategory: "card",
+      outputCategory,
+      input,
+      output,
+      ratio: stackSize,
+      outputQuantity: rewardQuantity
     });
   }
   return pairs;
+}
+
+export function buildFixedCurrencyCardPairs(cardItems, currencyItems, catalog) {
+  const normalizedCatalog = (catalog ?? []).map((entry) => ({
+    ...entry,
+    cardCategory: entry.cardCategory ?? "currency",
+    rewardMarketCategory: entry.rewardMarketCategory ?? "currency"
+  }));
+  return buildFixedRewardCardPairs(cardItems, { currency: currencyItems }, normalizedCatalog);
 }
 
 function rolePrice(item, role, useSecondSource) {
@@ -331,5 +362,5 @@ export function calculateOpportunity(pair, settings = {}) {
 }
 
 export function recipeKey(pair) {
-  return `${pair.category}|${pair.input.name}|${pair.output.name}`;
+  return `${pair.category}|${pair.cardCategory ?? ""}|${pair.input.name}|${pair.output.name}`;
 }

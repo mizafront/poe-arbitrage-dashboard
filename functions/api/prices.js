@@ -1,5 +1,5 @@
-const ALLOWED_TYPES = new Set(["Oil", "Essence", "DivinationCard", "Currency", "Fragment"]);
-const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.4.0 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
+const ALLOWED_TYPES = new Set(["Oil", "Essence", "DivinationCard", "Currency", "Fragment", "UniqueMap", "Scarab"]);
+const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.5.0 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
 const CACHE_SECONDS = 300;
 
 function textResponse(message, status) {

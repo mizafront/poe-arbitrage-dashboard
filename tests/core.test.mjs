@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildEssencePairs,
   buildFixedCurrencyCardPairs,
+  buildFixedRewardCardPairs,
   buildOilPairs,
   calculateOpportunity,
   mergeMarketSources,
@@ -10,7 +11,12 @@ import {
   normalizePoeWatch,
   priceDiscrepancyPercent
 } from "../public/core.js";
-import { FIXED_CURRENCY_CARD_CATALOG } from "../public/cards.js";
+import {
+  FIXED_CARD_REWARD_CATALOG,
+  FIXED_CURRENCY_CARD_CATALOG,
+  FIXED_MAP_FRAGMENT_CARD_CATALOG,
+  FIXED_SCARAB_CARD_CATALOG
+} from "../public/cards.js";
 
 test("normalizes current exchange payload", () => {
   const payload = {
@@ -203,4 +209,70 @@ test("normalizes poe.watch object-map payload", () => {
   assert.equal(items.length, 1);
   assert.equal(items[0].name, "Golden Oil");
   assert.equal(items[0].price, 99);
+});
+
+
+test("builds exact map/fragment card rewards from multiple market categories", () => {
+  const cards = [
+    { name: "Checkmate", price: 0.3, volume: 100 },
+    { name: "The Professor", price: 3, volume: 40 }
+  ];
+  const markets = {
+    fragment: [{ name: "Simulacrum Splinter", price: 0.1, volume: 5000 }],
+    "unique-map": [{ name: "The Putrid Cloister", price: 20, volume: 200 }]
+  };
+  const catalog = [
+    {
+      name: "Checkmate", stackSize: 8, rewardName: "Simulacrum Splinter",
+      rewardQuantity: 76, rewardMarketCategory: "fragment", cardCategory: "map-fragment"
+    },
+    {
+      name: "The Professor", stackSize: 4, rewardName: "The Putrid Cloister",
+      rewardQuantity: 1, rewardMarketCategory: "unique-map", cardCategory: "map-fragment"
+    }
+  ];
+  const pairs = buildFixedRewardCardPairs(cards, markets, catalog);
+  assert.equal(pairs.length, 2);
+  assert.equal(pairs[0].cardCategory, "map-fragment");
+  assert.equal(pairs[0].outputCategory, "fragment");
+  assert.equal(pairs[0].outputQuantity, 76);
+  assert.equal(pairs[1].outputCategory, "unique-map");
+});
+
+test("builds exact scarab card rewards and excludes missing generic rewards", () => {
+  const cards = [
+    { name: "Buried Treasure", price: 0.2, volume: 100 },
+    { name: "Cameria's Cut", price: 0.1, volume: 100 }
+  ];
+  const catalog = [
+    {
+      name: "Buried Treasure", stackSize: 3, rewardName: "Sulphite Scarab",
+      rewardQuantity: 1, rewardMarketCategory: "scarab", cardCategory: "scarab"
+    },
+    {
+      name: "Cameria's Cut", stackSize: 2, rewardName: "Scarab",
+      rewardQuantity: 1, rewardMarketCategory: "scarab", cardCategory: "scarab"
+    }
+  ];
+  const pairs = buildFixedRewardCardPairs(cards, {
+    scarab: [{ name: "Sulphite Scarab", price: 1.4, volume: 1000 }]
+  }, catalog);
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].input.name, "Buried Treasure");
+});
+
+test("combined card catalog contains only supported deterministic categories", () => {
+  assert.equal(FIXED_MAP_FRAGMENT_CARD_CATALOG.length, 8);
+  assert.equal(FIXED_SCARAB_CARD_CATALOG.length, 4);
+  assert.equal(
+    FIXED_CARD_REWARD_CATALOG.length,
+    FIXED_CURRENCY_CARD_CATALOG.length + FIXED_MAP_FRAGMENT_CARD_CATALOG.length + FIXED_SCARAB_CARD_CATALOG.length
+  );
+  const names = new Set();
+  for (const entry of FIXED_CARD_REWARD_CATALOG) {
+    assert.ok(["currency", "map-fragment", "scarab"].includes(entry.cardCategory));
+    assert.ok(["currency", "fragment", "unique-map", "scarab"].includes(entry.rewardMarketCategory));
+    assert.equal(names.has(entry.name), false);
+    names.add(entry.name);
+  }
 });
