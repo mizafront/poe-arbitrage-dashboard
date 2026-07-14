@@ -352,8 +352,17 @@ async function loadLeagues() {
   }
   try {
     const payload = await fetchJson("/api/leagues");
-    const leagues = Array.isArray(payload) ? payload : payload?.leagues;
-    if (!Array.isArray(leagues)) return;
+    const sourceLeagues = Array.isArray(payload) ? payload : payload?.leagues;
+    if (!Array.isArray(sourceLeagues)) return;
+
+    // Always expose the permanent Standard league, even if the upstream
+    // endpoint temporarily omits it or an older cached response is returned.
+    const leagues = [...sourceLeagues];
+    const knownSourceIds = new Set(leagues.map((league) => league?.id ?? league?.name ?? league));
+    if (!knownSourceIds.has("Standard")) {
+      leagues.push({ id: "Standard", name: "Standard", current: false });
+    }
+
     elements.leagueOptions.innerHTML = leagues.map((league) => {
       const id = league?.id ?? league?.name ?? league;
       return `<option value="${escapeAttribute(id)}"></option>`;

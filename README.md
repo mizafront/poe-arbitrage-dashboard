@@ -120,3 +120,8 @@ ROI = прибыль / затраты × 100%
 5. Список покупок для перехода в Kinetic Blast.
 
 This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
+
+## Изменение v0.2.1
+
+- Лига `Standard` всегда добавляется в список лиг, даже если poe.ninja не вернул её в ответе.
+- Правильное английское написание: `Standard`, не `Standart`.

@@ -1,5 +1,5 @@
 const SOURCE_URL = "https://poe.ninja/poe1/api/economy/leagues";
-const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.2 (+https://example.pages.dev; economy analysis)";
+const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.2.1 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
 const CACHE_SECONDS = 900;
 
 function extractLeagues(payload) {
@@ -23,6 +23,13 @@ function extractLeagues(payload) {
       name: typeof entry === "string" ? entry : entry?.name ?? id,
       current: Boolean(entry?.current ?? entry?.category?.current)
     });
+  }
+
+  // poe.ninja may return only temporary challenge leagues. Standard is a valid
+  // permanent economy league, so keep it available even when it is absent
+  // from the upstream league list.
+  if (!seen.has("Standard")) {
+    leagues.push({ id: "Standard", name: "Standard", current: false });
   }
 
   return leagues.sort((a, b) => Number(b.current) - Number(a.current) || a.name.localeCompare(b.name));
