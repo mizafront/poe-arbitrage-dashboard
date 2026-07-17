@@ -7,6 +7,8 @@ import {
   buildOilPairs,
   calculateOpportunity,
   mergeMarketSources,
+  mergeCurrencyExchangeStats,
+  normalizeCurrencyExchange,
   normalizeExchange,
   normalizePoeWatch,
   priceDiscrepancyPercent,
@@ -362,4 +364,71 @@ test("combined card catalog contains only supported deterministic categories", (
     assert.equal(names.has(entry.name), false);
     names.add(entry.name);
   }
+});
+
+
+test("normalizes official Currency Exchange hourly markets", () => {
+  const result = normalizeCurrencyExchange({
+    configured: true,
+    available: true,
+    league: "Standard",
+    hour: 123456,
+    next_change_id: 127056,
+    markets: [{
+      league: "Standard",
+      market_id: "chaos|clear",
+      volume_traded: { chaos: 4000, clear: 1000 },
+      lowest_stock: { chaos: 100, clear: 20 },
+      highest_stock: { chaos: 10000, clear: 400 },
+      lowest_ratio: { chaos: 3, clear: 10 },
+      highest_ratio: { chaos: 4, clear: 10 }
+    }]
+  });
+  assert.equal(result.available, true);
+  assert.equal(result.markets.length, 1);
+  assert.deepEqual(result.markets[0].codes, ["chaos", "clear"]);
+  assert.equal(result.markets[0].volumeTraded.clear, 1000);
+});
+
+test("attaches official chaos price range and hourly volume to items", () => {
+  const exchange = normalizeCurrencyExchange({
+    configured: true,
+    available: true,
+    league: "Standard",
+    hour: 123456,
+    markets: [{
+      league: "Standard",
+      market_id: "chaos|clear",
+      volume_traded: { chaos: 350, clear: 1000 },
+      lowest_stock: { chaos: 100, clear: 20 },
+      highest_stock: { chaos: 10000, clear: 400 },
+      lowest_ratio: { chaos: 3, clear: 10 },
+      highest_ratio: { chaos: 4, clear: 10 }
+    }]
+  });
+  const [item] = mergeCurrencyExchangeStats([{ id: "clear", marketCode: "clear", name: "Clear Oil", price: 0.35 }], exchange);
+  assert.equal(item.cx.available, true);
+  assert.equal(item.cx.lowPrice, 0.3);
+  assert.equal(item.cx.highPrice, 0.4);
+  assert.equal(item.cx.volume, 1000);
+});
+
+test("calculates historical Currency Exchange profit range", () => {
+  const pair = {
+    category: "oil",
+    ratio: 3,
+    input: {
+      name: "Clear Oil", price: 1,
+      cx: { available: true, lowPrice: 0.9, highPrice: 1.1, midpoint: 1, volume: 5000, hour: 123 }
+    },
+    output: {
+      name: "Sepia Oil", price: 4,
+      cx: { available: true, lowPrice: 3.8, highPrice: 4.2, midpoint: 4, volume: 3000, hour: 123 }
+    }
+  };
+  const result = calculateOpportunity(pair, { useSecondSource: false });
+  assert.equal(result.cxBoth, true);
+  assert.ok(Math.abs(result.cxProfitLow - 0.5) < 1e-9);
+  assert.ok(Math.abs(result.cxProfitHigh - 1.5) < 1e-9);
+  assert.equal(result.minCxVolume, 3000);
 });

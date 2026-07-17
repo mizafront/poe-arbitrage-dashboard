@@ -12,7 +12,7 @@
     <div>
       <p class="eyebrow">PATH OF EXILE 1 · ECONOMY LAB</p>
       <h1>Arbitrage Dashboard</h1>
-      <p class="subtitle">Сравнивает poe.ninja и poe.watch, диагностирует фильтры и оценивает точные награды карточек: валюту, карты, скарабы, камни и уникальные предметы.</p>
+      <p class="subtitle">Сравнивает poe.ninja и poe.watch и сверяет возможности с официальной почасовой историей Currency Exchange: объёмом, диапазоном курсов и исторической маржой.</p>
     </div>
     <div class="header-actions">
       <button id="exportButton" class="secondary-button" type="button">Экспорт CSV</button>
@@ -99,6 +99,10 @@
         <strong id="stableCount">—</strong>
       </article>
       <article class="summary-card">
+        <span>Аукцион GGG, прошлый час</span>
+        <strong id="cxStatus">—</strong>
+      </article>
+      <article class="summary-card">
         <span>Последнее обновление</span>
         <strong id="updatedAt">—</strong>
       </article>
@@ -163,6 +167,7 @@
               <th class="number">На бюджет</th>
               <th class="number">Расхождение</th>
               <th class="number">Объём / 24ч</th>
+              <th class="number">Аукцион GGG</th>
               <th class="number">7 дней</th>
               <th class="number">Стабильность</th>
               <th class="number">Тренд маржи</th>
@@ -171,7 +176,7 @@
           </thead>
           <tbody id="resultsBody">
             <tr>
-              <td colspan="14" class="empty-state">Данные ещё не загружены.</td>
+              <td colspan="15" class="empty-state">Данные ещё не загружены.</td>
             </tr>
           </tbody>
         </table>
@@ -179,12 +184,12 @@
     </section>
 
     <section class="notice">
-      <strong>Как работает проверка:</strong> poe.ninja ищет кандидатов, poe.watch подтверждает цену и добавляет объём, изменение за 24 часа и историю. Для камней обязательно совпадают название, уровень, качество и осквернение. Для уникальных предметов учитывается только точная обычная неосквернённая версия; оценка надёжности снижена из-за разброса роллов. Случайные награды и обычная экипировка исключены.
+      <strong>Как работает проверка:</strong> poe.ninja ищет кандидатов, poe.watch подтверждает текущую агрегированную оценку, а официальный Currency Exchange API добавляет фактический диапазон курсов и объём последнего завершённого часа. Текущий час API GGG не отдаёт, поэтому финальный курс всё равно проверяется у Фаустуса в игре. Камни и уникальные предметы обычно не имеют полного подтверждения Currency Exchange.
     </section>
   </main>
 
   <footer>
-    Данные: poe.ninja и poe.watch. This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
+    Данные: poe.ninja, poe.watch и официальный Currency Exchange API GGG. This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
   </footer>
 
   <script type="module" src="./app.js"></script>

@@ -583,3 +583,18 @@ table { min-width: 1780px; }
   .filter-diagnostics { padding-top: 4px; }
   .confidence-popover { position: fixed; inset: auto 12px 12px 12px; width: auto; }
 }
+
+.cx-cell {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  min-width: 155px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cx-cell small {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cx-cell strong { white-space: nowrap; }

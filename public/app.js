@@ -6,14 +6,16 @@ import {
   buildOilPairs,
   calculateOpportunity,
   mergeMarketSources,
+  mergeCurrencyExchangeStats,
+  normalizeCurrencyExchange,
   normalizeExchange,
   normalizePoeWatch,
   recipeKey
 } from "./core.js";
 import { FIXED_CARD_REWARD_CATALOG } from "./cards.js";
 
-const SETTINGS_KEY = "poe-arbitrage-settings:v6";
-const HISTORY_PREFIX = "poe-arbitrage-history:v6:";
+const SETTINGS_KEY = "poe-arbitrage-settings:v7";
+const HISTORY_PREFIX = "poe-arbitrage-history:v7:";
 const MAX_HISTORY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_HISTORY_SNAPSHOTS = 600;
 const DEMO_MODE = new URLSearchParams(window.location.search).get("demo") === "1";
@@ -28,6 +30,12 @@ const state = {
   watchAvailable: false,
   watchItemCount: 0,
   watchMatchCount: 0,
+  cxConfigured: false,
+  cxAvailable: false,
+  cxMarketCount: 0,
+  cxMatchCount: 0,
+  cxHour: Number.NaN,
+  cxError: "",
   autoTimer: null,
   countdownTimer: null,
   nextRefreshAt: 0,
@@ -60,6 +68,7 @@ const elements = {
   bestBudgetProfit: document.querySelector("#bestBudgetProfit"),
   stableCount: document.querySelector("#stableCount"),
   confirmedCount: document.querySelector("#confirmedCount"),
+  cxStatus: document.querySelector("#cxStatus"),
   updated: document.querySelector("#updatedAt"),
   tabs: [...document.querySelectorAll(".tab")],
   cardSubtabsContainer: document.querySelector("#cardSubtabs"),
@@ -165,7 +174,8 @@ function createSnapshot(itemsByCategory) {
         change24h: item.change24h,
         history7d: item.history7d,
         discrepancy: item.discrepancy,
-        sources: item.sources
+        sources: item.sources,
+        cx: item.cx
       };
     }
   }
@@ -254,6 +264,33 @@ function confidenceBreakdown(row, metrics) {
     score += add(`Минимальный объём poe.watch: ${Math.round(row.minWatchVolume)}`, points);
   } else {
     add("Нет подтверждённого объёма poe.watch", 0, "neutral");
+  }
+
+  if (row.cxBoth) {
+    score += add("Обе стороны торговались на официальном Currency Exchange", 12);
+    if (Number.isFinite(row.minCxVolume)) {
+      const points = row.minCxVolume >= 1000 ? 6 : row.minCxVolume >= 100 ? 4 : row.minCxVolume > 0 ? 2 : 0;
+      score += add(`Минимальный объём Currency Exchange: ${Math.round(row.minCxVolume)}`, points, points >= 4 ? "positive" : points > 0 ? "warning" : "neutral");
+    }
+    if (Number.isFinite(row.maxCxDiscrepancy)) {
+      const points = row.maxCxDiscrepancy <= 10 ? 6 : row.maxCxDiscrepancy <= 25 ? 2 : -8;
+      score += add(`Отклонение от прошлого часа GGG: ${row.maxCxDiscrepancy.toFixed(1)}%`, points, points >= 6 ? "positive" : points > 0 ? "warning" : "negative");
+    }
+    if (Number.isFinite(row.cxProfitLow)) {
+      score += add(
+        row.cxProfitLow > 0
+          ? `Даже консервативный диапазон прошлого часа был прибыльным: ${row.cxProfitLow.toFixed(1)}c`
+          : `По консервативному диапазону прошлого часа прибыль не подтверждена: ${row.cxProfitLow.toFixed(1)}c`,
+        row.cxProfitLow > 0 ? 5 : -5,
+        row.cxProfitLow > 0 ? "positive" : "warning"
+      );
+    }
+  } else if (row.inputCx || row.outputCx) {
+    score += add("Currency Exchange подтвердил только одну сторону операции", 3, "warning");
+  } else if (state.cxConfigured) {
+    add("Для этой операции нет рынка Currency Exchange за проверенный час", 0, "neutral");
+  } else {
+    add("Официальный Currency Exchange API ещё не настроен", 0, "neutral");
   }
 
   const marginPoints = row.roi >= 30 ? 10 : row.roi >= 15 ? 7 : row.roi > 0 ? 3 : 0;
@@ -357,7 +394,10 @@ function escapeAttribute(value) {
 function priceSourcesHtml(item) {
   const ninja = Number.isFinite(item.ninjaPrice) ? `N: ${formatChaos(item.ninjaPrice)}` : "N: —";
   const watch = Number.isFinite(item.watchPrice) ? `W: ${formatChaos(item.watchPrice)}` : "W: —";
-  return `<small class="source-prices"><span>${ninja}</span><span>${watch}</span></small>`;
+  const cx = item?.cx?.available
+    ? `GGG: ${formatChaos(item.cx.lowPrice)}–${formatChaos(item.cx.highPrice)}`
+    : "";
+  return `<small class="source-prices"><span>${ninja}</span><span>${watch}</span>${cx ? `<span>${cx}</span>` : ""}</small>`;
 }
 
 function itemCell(item, quantity = 1) {
@@ -414,6 +454,30 @@ function liquidityCell(row) {
   return `<div class="liquidity-cell"><strong>${formatNumber(row.minWatchVolume)}</strong><small>вход ${inputChange}</small><small>выход ${outputChange}</small></div>`;
 }
 
+function formatExchangeHour(timestamp) {
+  if (!Number.isFinite(timestamp)) return "";
+  return new Date(timestamp * 1000).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function currencyExchangeCell(row) {
+  if (!state.cxConfigured) return `<span class="source-badge source-one">не настроен</span>`;
+  if (!row.inputCx && !row.outputCx) return `<span class="trend-flat">нет рынка</span>`;
+  if (!row.cxBoth) {
+    const side = row.inputCx ? "только вход" : "только выход";
+    return `<div class="cx-cell"><span class="source-badge source-one">частично</span><small>${side}</small></div>`;
+  }
+  const profitClass = row.cxProfitLow > 0 ? "trend-up" : row.cxProfitHigh < 0 ? "trend-down" : "trend-flat";
+  const profitText = Number.isFinite(row.cxProfitLow) && Number.isFinite(row.cxProfitHigh)
+    ? `${formatChaos(row.cxProfitLow)}…${formatChaos(row.cxProfitHigh)}`
+    : "—";
+  return `<div class="cx-cell">
+    <small>вход ${formatChaos(row.inputCx.lowPrice)}–${formatChaos(row.inputCx.highPrice)}</small>
+    <small>выход ${formatChaos(row.outputCx.lowPrice)}–${formatChaos(row.outputCx.highPrice)}</small>
+    <strong class="${profitClass}">${profitText}</strong>
+    <small>объём ${formatNumber(row.minCxVolume)} · ${escapeHtml(formatExchangeHour(row.cxHour))}</small>
+  </div>`;
+}
+
 function rewardMeta(row) {
   const parts = [];
   if (row.rewardDescription) parts.push(row.rewardDescription);
@@ -458,9 +522,16 @@ function render() {
   elements.bestBudgetProfit.textContent = rows.length ? formatChaos(Math.max(...rows.map((row) => row.budgetProfit))) : "—";
   elements.stableCount.textContent = rows.filter((row) => row.streak >= currentSettings.minStability && row.profit > 0).length.toLocaleString("ru-RU");
   elements.confirmedCount.textContent = rows.filter((row) => row.bothSources).length.toLocaleString("ru-RU");
+  if (elements.cxStatus) {
+    elements.cxStatus.textContent = !state.cxConfigured
+      ? "не настроен"
+      : state.cxAvailable
+        ? `${state.cxMatchCount} совп. / ${state.cxMarketCount} рынков`
+        : "нет данных";
+  }
 
   if (!rows.length) {
-    elements.body.innerHTML = `<tr><td colspan="14" class="empty-state">${escapeHtml(emptyReason(diagnostics, currentSettings))}</td></tr>`;
+    elements.body.innerHTML = `<tr><td colspan="15" class="empty-state">${escapeHtml(emptyReason(diagnostics, currentSettings))}</td></tr>`;
     return;
   }
 
@@ -494,6 +565,7 @@ function render() {
         <td class="number ${profitClass}">${budgetText}</td>
         <td class="number">${discrepancyBadge(row.maxDiscrepancy, row.bothSources)}</td>
         <td class="number">${liquidityCell(row)}</td>
+        <td class="number">${currencyExchangeCell(row)}</td>
         <td class="number">${sparkline(graphValues)}</td>
         <td class="number"><span class="stability-badge">${row.streak} / ${row.samples}</span></td>
         <td class="number">${trendCell(row.marginTrend)}</td>
@@ -630,6 +702,28 @@ function demoWatchPayload() {
   };
 }
 
+function demoCurrencyExchangePayload() {
+  const hour = Math.floor(Date.now() / 3_600_000) * 3_600 - 3_600;
+  const markets = [
+    ["chaos|oil-0", 3000, 0.11, 0.14], ["chaos|oil-1", 2600, 0.33, 0.38],
+    ["chaos|essence-4", 4200, 2.9, 3.3], ["chaos|essence-5", 3600, 10.8, 12.1],
+    ["chaos|divinationcard-1", 900, 17.5, 19.2], ["chaos|currency-1", 9500, 146, 152],
+    ["chaos|scarab-0", 4200, 1.25, 1.55], ["chaos|fragment-0", 1100, 54, 60]
+  ].map(([market_id, volume, low, high]) => {
+    const [chaos, item] = market_id.split("|");
+    return {
+      league: "Mirage",
+      market_id,
+      volume_traded: { [chaos]: Math.round(volume * ((low + high) / 2)), [item]: volume },
+      lowest_stock: { [chaos]: 1000, [item]: 25 },
+      highest_stock: { [chaos]: 25000, [item]: 1000 },
+      lowest_ratio: { [chaos]: low, [item]: 1 },
+      highest_ratio: { [chaos]: high, [item]: 1 }
+    };
+  });
+  return { configured: true, available: true, league: "Mirage", hour, next_change_id: hour + 3600, markets };
+}
+
 async function loadLeagues() {
   if (DEMO_MODE) {
     elements.leagueOptions.innerHTML = `<option value="Mirage"></option><option value="Standard"></option>`;
@@ -663,7 +757,7 @@ async function refreshData({ silent = false } = {}) {
   elements.refresh.disabled = true;
   if (!silent) {
     elements.status.className = "status";
-    elements.status.textContent = "Загружаю poe.ninja и poe.watch…";
+    elements.status.textContent = "Загружаю poe.ninja, poe.watch и историю Currency Exchange…";
   }
 
   try {
@@ -705,24 +799,35 @@ async function refreshData({ silent = false } = {}) {
       console.warn("poe.watch недоступен, продолжаю только с poe.ninja:", error);
     }
 
+    let cxPayload = null;
+    let cxError = null;
+    try {
+      cxPayload = DEMO_MODE ? demoCurrencyExchangePayload() : await fetchJson(`/api/currency-exchange?league=${encodeURIComponent(league)}`);
+    } catch (error) {
+      cxError = error;
+      console.warn("Currency Exchange API недоступен, продолжаю без него:", error);
+    }
+    const cxExchange = normalizeCurrencyExchange(cxPayload ?? {});
+
     const normalized = Object.fromEntries(
       Object.entries(ninjaPayloads).map(([key, payload]) => [key, normalizeExchange(payload)])
     );
     const watchItems = watchPayload ? normalizePoeWatch(watchPayload) : [];
+    const withSources = (items) => mergeCurrencyExchangeStats(mergeMarketSources(items, watchItems), cxExchange);
 
-    const oils = mergeMarketSources(normalized.oil.items, watchItems);
-    const essences = mergeMarketSources(normalized.essence.items, watchItems);
-    const cards = mergeMarketSources(normalized.card.items, watchItems);
-    const currencies = mergeMarketSources(normalized.currency.items, watchItems);
-    const fragments = mergeMarketSources(normalized.fragment.items, watchItems);
-    const uniqueMaps = mergeMarketSources(normalized.uniqueMap.items, watchItems);
-    const scarabs = mergeMarketSources(normalized.scarab.items, watchItems);
-    const skillGems = mergeMarketSources(normalized.skillGem.items, watchItems);
-    const uniqueAccessories = mergeMarketSources(normalized.uniqueAccessory.items, watchItems);
-    const uniqueWeapons = mergeMarketSources(normalized.uniqueWeapon.items, watchItems);
-    const uniqueArmours = mergeMarketSources(normalized.uniqueArmour.items, watchItems);
-    const uniqueFlasks = mergeMarketSources(normalized.uniqueFlask.items, watchItems);
-    const uniqueJewels = mergeMarketSources(normalized.uniqueJewel.items, watchItems);
+    const oils = withSources(normalized.oil.items);
+    const essences = withSources(normalized.essence.items);
+    const cards = withSources(normalized.card.items);
+    const currencies = withSources(normalized.currency.items);
+    const fragments = withSources(normalized.fragment.items);
+    const uniqueMaps = withSources(normalized.uniqueMap.items);
+    const scarabs = withSources(normalized.scarab.items);
+    const skillGems = withSources(normalized.skillGem.items);
+    const uniqueAccessories = withSources(normalized.uniqueAccessory.items);
+    const uniqueWeapons = withSources(normalized.uniqueWeapon.items);
+    const uniqueArmours = withSources(normalized.uniqueArmour.items);
+    const uniqueFlasks = withSources(normalized.uniqueFlask.items);
+    const uniqueJewels = withSources(normalized.uniqueJewel.items);
 
     const allMerged = [
       ...oils, ...essences, ...cards, ...currencies, ...fragments, ...uniqueMaps, ...scarabs,
@@ -731,6 +836,12 @@ async function refreshData({ silent = false } = {}) {
     state.watchAvailable = watchItems.length > 0;
     state.watchItemCount = watchItems.length;
     state.watchMatchCount = allMerged.filter((item) => item.sources === 2).length;
+    state.cxConfigured = cxExchange.configured;
+    state.cxAvailable = cxExchange.available;
+    state.cxMarketCount = cxExchange.markets.length;
+    state.cxMatchCount = allMerged.filter((item) => item.cx?.available && !item.cx.synthetic).length;
+    state.cxHour = cxExchange.hour;
+    state.cxError = cxError?.message ?? cxExchange.error ?? "";
     state.sourcePrimary = Object.values(normalized).map((entry) => entry.primaryName).find(Boolean) || "Chaos Orb";
 
     const cardPairs = buildFixedRewardCardPairs(cards, {
@@ -772,7 +883,7 @@ async function refreshData({ silent = false } = {}) {
 
     const now = new Date();
     elements.updated.textContent = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-    const hasWarning = Boolean(watchError || optionalErrors.length);
+    const hasWarning = Boolean(watchError || optionalErrors.length || cxError || (cxExchange.configured && !cxExchange.available));
     elements.status.className = hasWarning ? "status warning" : "status success";
     const watchText = watchError
       ? `poe.watch недоступен: используется только poe.ninja. ${watchError.message}`
@@ -780,15 +891,20 @@ async function refreshData({ silent = false } = {}) {
     const optionalText = optionalErrors.length
       ? ` Не загрузились необязательные категории: ${optionalErrors.join("; ")}.`
       : "";
+    const cxText = !cxExchange.configured
+      ? " Currency Exchange API не настроен."
+      : cxExchange.available
+        ? ` Currency Exchange: ${cxExchange.markets.length} рынков за ${formatExchangeHour(cxExchange.hour)}, совпало позиций ${state.cxMatchCount}.`
+        : ` Currency Exchange: данных нет${state.cxError ? ` (${state.cxError})` : ""}.`;
     const uniqueMarketCount = uniqueAccessories.length + uniqueWeapons.length + uniqueArmours.length + uniqueFlasks.length + uniqueJewels.length;
-    elements.status.textContent = `${DEMO_MODE ? "Демо. " : ""}poe.ninja: ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек, ${currencies.length} валют, ${fragments.length} фрагментов, ${uniqueMaps.length} уникальных карт, ${scarabs.length} скараба, ${skillGems.length} камней, ${uniqueMarketCount} уникальных предметов. ${watchText}${optionalText} Карточные цепочки: ${cardPairs.length} (валюта ${cardCounts.currency ?? 0}, карты/фрагменты ${cardCounts["map-fragment"] ?? 0}, скарабы ${cardCounts.scarab ?? 0}, камни ${cardCounts.gem ?? 0}, уникальные ${cardCounts.unique ?? 0}). История: ${state.history.length}.`;
+    elements.status.textContent = `${DEMO_MODE ? "Демо. " : ""}poe.ninja: ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек, ${currencies.length} валют, ${fragments.length} фрагментов, ${uniqueMaps.length} уникальных карт, ${scarabs.length} скараба, ${skillGems.length} камней, ${uniqueMarketCount} уникальных предметов. ${watchText}${cxText}${optionalText} Карточные цепочки: ${cardPairs.length} (валюта ${cardCounts.currency ?? 0}, карты/фрагменты ${cardCounts["map-fragment"] ?? 0}, скарабы ${cardCounts.scarab ?? 0}, камни ${cardCounts.gem ?? 0}, уникальные ${cardCounts.unique ?? 0}). История: ${state.history.length}.`;
     render();
     scheduleAutoRefresh();
   } catch (error) {
     console.error(error);
     elements.status.className = "status error";
     elements.status.textContent = `Не удалось получить основные данные poe.ninja: ${error.message}`;
-    elements.body.innerHTML = `<tr><td colspan="14" class="empty-state">Проверьте /api/leagues, /api/prices и /api/watch. Для демо откройте адрес с параметром ?demo=1.</td></tr>`;
+    elements.body.innerHTML = `<tr><td colspan="15" class="empty-state">Проверьте /api/leagues, /api/prices, /api/watch и /api/currency-exchange. Для демо откройте адрес с параметром ?demo=1.</td></tr>`;
   } finally {
     state.isRefreshing = false;
     elements.refresh.disabled = false;
@@ -833,7 +949,7 @@ function exportCsv() {
   if (!rows.length) return;
   const headers = [
     "Категория", "Подкатегория карточек", "Покупка", "Результат", "Ninja вход", "Watch вход", "Ninja выход", "Watch выход",
-    "Расхождение %", "Watch объём", "Вход 24ч %", "Выход 24ч %", "Затраты chaos", "Продажа chaos",
+    "Расхождение %", "Watch объём", "GGG CX вход min", "GGG CX вход max", "GGG CX выход min", "GGG CX выход max", "GGG CX объём", "GGG CX прибыль min", "GGG CX прибыль max", "Вход 24ч %", "Выход 24ч %", "Затраты chaos", "Продажа chaos",
     "Прибыль chaos", "ROI %", "Операций", "Прибыль на бюджет", "Стабильность", "Замеров", "Доверие"
   ];
   const data = rows.map((row) => [
@@ -842,7 +958,10 @@ function exportCsv() {
     `${row.ratio} x ${row.input.name}`,
     `${row.outputQuantity ?? 1} x ${row.output.name}`,
     row.input.ninjaPrice, row.input.watchPrice, row.output.ninjaPrice, row.output.watchPrice,
-    row.maxDiscrepancy, row.minWatchVolume, row.input.change24h, row.output.change24h,
+    row.maxDiscrepancy, row.minWatchVolume,
+    row.inputCx?.lowPrice, row.inputCx?.highPrice, row.outputCx?.lowPrice, row.outputCx?.highPrice,
+    row.minCxVolume, row.cxProfitLow, row.cxProfitHigh,
+    row.input.change24h, row.output.change24h,
     row.cost, row.sale, row.profit, row.roi, row.maxOperations, row.budgetProfit, row.streak, row.samples, row.confidence
   ]);
   const csv = [headers, ...data].map((line) => line.map(csvEscape).join(";")).join("\n");

@@ -128,6 +128,7 @@ export function normalizeExchange(payload) {
 
     return {
       id: id ?? name,
+      marketCode: normalizedName(meta.id ?? meta.detailsId ?? line?.id ?? line?.detailsId ?? id ?? name).replace(/\s+/g, "-"),
       name,
       icon: normalizeIcon(meta.icon ?? line?.icon ?? ""),
       price,
@@ -257,6 +258,162 @@ export function priceDiscrepancyPercent(a, b) {
   const right = Number(b);
   if (!Number.isFinite(left) || !Number.isFinite(right) || left <= 0 || right <= 0) return Number.NaN;
   return Math.abs(left - right) / ((left + right) / 2) * 100;
+}
+
+
+function normalizedMarketCode(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-")
+    .replace(/[^a-z0-9.:-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function numericDictionary(value) {
+  const result = {};
+  if (!value || typeof value !== "object") return result;
+  for (const [key, raw] of Object.entries(value)) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) result[normalizedMarketCode(key)] = parsed;
+  }
+  return result;
+}
+
+export function normalizeCurrencyExchange(payload) {
+  const markets = Array.isArray(payload?.markets) ? payload.markets : [];
+  return {
+    configured: Boolean(payload?.configured),
+    available: Boolean(payload?.available) && markets.length > 0,
+    league: String(payload?.league ?? ""),
+    hour: Number.isFinite(Number(payload?.hour)) ? Number(payload.hour) : Number.NaN,
+    nextChangeId: Number.isFinite(Number(payload?.next_change_id)) ? Number(payload.next_change_id) : Number.NaN,
+    error: String(payload?.error ?? payload?.reason ?? ""),
+    markets: markets.map((market) => {
+      const codes = String(market?.market_id ?? "").split("|").map(normalizedMarketCode).filter(Boolean);
+      return {
+        league: String(market?.league ?? ""),
+        marketId: String(market?.market_id ?? ""),
+        codes,
+        volumeTraded: numericDictionary(market?.volume_traded),
+        lowestStock: numericDictionary(market?.lowest_stock),
+        highestStock: numericDictionary(market?.highest_stock),
+        lowestRatio: numericDictionary(market?.lowest_ratio),
+        highestRatio: numericDictionary(market?.highest_ratio)
+      };
+    }).filter((market) => market.codes.length === 2)
+  };
+}
+
+function ratioChaosPrice(ratio, itemCode, chaosCode) {
+  const itemAmount = Number(ratio?.[itemCode]);
+  const chaosAmount = Number(ratio?.[chaosCode]);
+  if (!Number.isFinite(itemAmount) || !Number.isFinite(chaosAmount) || itemAmount <= 0 || chaosAmount <= 0) {
+    return Number.NaN;
+  }
+  return chaosAmount / itemAmount;
+}
+
+function marketCodeCandidates(item) {
+  const nameSlug = normalizedMarketCode(item?.name);
+  const candidates = [
+    item?.marketCode,
+    item?.id,
+    item?.detailsId,
+    item?.baseType,
+    nameSlug,
+    nameSlug.replace(/-orb$/, ""),
+    nameSlug.replace(/^the-/, "")
+  ].map(normalizedMarketCode).filter(Boolean);
+  const aliases = {
+    "chaos-orb": ["chaos"],
+    "divine-orb": ["divine"],
+    "exalted-orb": ["exalted"],
+    "orb-of-fusing": ["fusing"],
+    "orb-of-annulment": ["annulment"],
+    "orb-of-alteration": ["alteration"],
+    "orb-of-scouring": ["scouring"],
+    "orb-of-regret": ["regret"],
+    "orb-of-alchemy": ["alchemy"],
+    "vaal-orb": ["vaal"],
+    "mirror-of-kalandra": ["mirror"],
+    "mirror-shard": ["mirror-shard"],
+    "stacked-deck": ["stacked-deck"]
+  };
+  for (const alias of aliases[nameSlug] ?? []) candidates.push(alias);
+  return [...new Set(candidates)];
+}
+
+function exchangeMarketForItem(item, exchange, chaosCodes) {
+  const itemCodes = marketCodeCandidates(item);
+  let best = null;
+  for (const market of exchange?.markets ?? []) {
+    const chaosCode = market.codes.find((code) => chaosCodes.has(code));
+    if (!chaosCode) continue;
+    const itemCode = market.codes.find((code) => itemCodes.includes(code));
+    if (!itemCode || itemCode === chaosCode) continue;
+    const volume = Number(market.volumeTraded?.[itemCode] ?? 0);
+    if (!best || volume > best.volume) best = { market, itemCode, chaosCode, volume };
+  }
+  return best;
+}
+
+export function mergeCurrencyExchangeStats(items, exchangePayload) {
+  const exchange = exchangePayload?.markets ? exchangePayload : normalizeCurrencyExchange(exchangePayload);
+  const chaosCodes = new Set(["chaos", "chaos-orb"]);
+
+  return (items ?? []).map((item) => {
+    if (normalizedName(item?.name) === "chaos orb") {
+      return {
+        ...item,
+        cx: {
+          available: true,
+          synthetic: true,
+          marketId: "chaos",
+          code: "chaos",
+          hour: exchange.hour,
+          lowPrice: 1,
+          highPrice: 1,
+          midpoint: 1,
+          volume: Number.POSITIVE_INFINITY,
+          chaosVolume: Number.POSITIVE_INFINITY,
+          lowestStock: Number.POSITIVE_INFINITY,
+          highestStock: Number.POSITIVE_INFINITY
+        }
+      };
+    }
+
+    const match = exchangeMarketForItem(item, exchange, chaosCodes);
+    if (!match) return { ...item, cx: null };
+
+    const lowCandidate = ratioChaosPrice(match.market.lowestRatio, match.itemCode, match.chaosCode);
+    const highCandidate = ratioChaosPrice(match.market.highestRatio, match.itemCode, match.chaosCode);
+    const values = [lowCandidate, highCandidate].filter((value) => Number.isFinite(value) && value > 0);
+    if (!values.length) return { ...item, cx: null };
+
+    const lowPrice = Math.min(...values);
+    const highPrice = Math.max(...values);
+    return {
+      ...item,
+      cx: {
+        available: true,
+        synthetic: false,
+        marketId: match.market.marketId,
+        code: match.itemCode,
+        chaosCode: match.chaosCode,
+        hour: exchange.hour,
+        lowPrice,
+        highPrice,
+        midpoint: (lowPrice + highPrice) / 2,
+        volume: Number(match.market.volumeTraded?.[match.itemCode] ?? 0),
+        chaosVolume: Number(match.market.volumeTraded?.[match.chaosCode] ?? 0),
+        lowestStock: Number(match.market.lowestStock?.[match.itemCode] ?? 0),
+        highestStock: Number(match.market.highestStock?.[match.itemCode] ?? 0)
+      }
+    };
+  });
 }
 
 export function mergeMarketSources(ninjaItems, watchItems) {
@@ -435,6 +592,23 @@ export function calculateOpportunity(pair, settings = {}) {
   const discrepancies = [pair.input?.discrepancy, pair.output?.discrepancy].filter(Number.isFinite);
   const maxDiscrepancy = discrepancies.length ? Math.max(...discrepancies) : Number.NaN;
   const bothSources = pair.input?.sources === 2 && pair.output?.sources === 2;
+  const inputCx = pair.input?.cx?.available ? pair.input.cx : null;
+  const outputCx = pair.output?.cx?.available ? pair.output.cx : null;
+  const cxBoth = Boolean(inputCx && outputCx);
+  const cxCostLow = inputCx ? inputCx.lowPrice * ratio : Number.NaN;
+  const cxCostHigh = inputCx ? inputCx.highPrice * ratio : Number.NaN;
+  const cxSaleLow = outputCx ? outputCx.lowPrice * outputQuantity : Number.NaN;
+  const cxSaleHigh = outputCx ? outputCx.highPrice * outputQuantity : Number.NaN;
+  const cxProfitLow = cxBoth ? cxSaleLow - cxCostHigh : Number.NaN;
+  const cxProfitHigh = cxBoth ? cxSaleHigh - cxCostLow : Number.NaN;
+  const cxVolumes = [inputCx?.volume, outputCx?.volume]
+    .filter((value) => Number.isFinite(value) && value >= 0 && value !== Number.POSITIVE_INFINITY);
+  const minCxVolume = cxVolumes.length ? Math.min(...cxVolumes) : Number.NaN;
+  const cxPriceDiscrepancies = [
+    inputCx ? priceDiscrepancyPercent(inputUnitPrice, inputCx.midpoint) : Number.NaN,
+    outputCx ? priceDiscrepancyPercent(outputUnitPrice, outputCx.midpoint) : Number.NaN
+  ].filter(Number.isFinite);
+  const maxCxDiscrepancy = cxPriceDiscrepancies.length ? Math.max(...cxPriceDiscrepancies) : Number.NaN;
 
   return {
     ...pair,
@@ -451,6 +625,18 @@ export function calculateOpportunity(pair, settings = {}) {
     budgetProfit: maxOperations * profit,
     maxDiscrepancy,
     bothSources,
+    inputCx,
+    outputCx,
+    cxBoth,
+    cxCostLow,
+    cxCostHigh,
+    cxSaleLow,
+    cxSaleHigh,
+    cxProfitLow,
+    cxProfitHigh,
+    minCxVolume,
+    maxCxDiscrepancy,
+    cxHour: inputCx?.hour ?? outputCx?.hour ?? Number.NaN,
     minWatchVolume: bothSources
       ? Math.max(0, Math.min(Number(pair.input.watchVolume || 0), Number(pair.output.watchVolume || 0)))
       : 0
