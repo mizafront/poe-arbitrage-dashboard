@@ -1,3 +1,7 @@
 name = "poe-arbitrage-dashboard"
 compatibility_date = "2026-07-14"
 pages_build_output_dir = "./public"
+[[d1_databases]]
+binding = "PRICE_HISTORY"
+database_name = "poe-arbitrage-history"
+database_id = "eaf554fe-f3cd-4958-99c4-9589388344dc"
