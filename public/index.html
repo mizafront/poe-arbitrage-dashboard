@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Поиск арбитражных рецептов Path of Exile: масла, эссенции и фиксированные награды divination cards">
+  <meta name="description" content="Поиск арбитражных рецептов Path of Exile: серверная история, уведомления, масла, эссенции и фиксированные награды divination cards">
   <title>PoE Arbitrage Dashboard</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -12,7 +12,7 @@
     <div>
       <p class="eyebrow">PATH OF EXILE 1 · ECONOMY LAB</p>
       <h1>Arbitrage Dashboard</h1>
-      <p class="subtitle">Сравнивает poe.ninja и poe.watch и сверяет возможности с официальной почасовой историей Currency Exchange: объёмом, диапазоном курсов и исторической маржой.</p>
+      <p class="subtitle">Сравнивает poe.ninja и poe.watch, хранит серверную историю в Cloudflare D1 и уведомляет о новых выгодных сигналах.</p>
     </div>
     <div class="header-actions">
       <button id="exportButton" class="secondary-button" type="button">Экспорт CSV</button>
@@ -77,6 +77,48 @@
       </label>
     </section>
 
+    <section class="panel notification-panel" aria-label="Уведомления">
+      <div class="notification-heading">
+        <div>
+          <p class="eyebrow">СИГНАЛЫ</p>
+          <h2>Браузерные уведомления</h2>
+          <p id="notificationStatus" class="notification-status">Уведомления выключены.</p>
+        </div>
+        <div class="notification-actions">
+          <button id="notificationButton" class="primary-button" type="button">Включить уведомления</button>
+          <button id="testNotificationButton" class="secondary-button" type="button">Тест</button>
+        </div>
+      </div>
+      <div class="notification-controls">
+        <label>
+          Мин. прибыль, chaos
+          <input id="notifyMinProfit" type="number" min="0" step="0.1" value="10">
+        </label>
+        <label>
+          Мин. ROI, %
+          <input id="notifyMinRoi" type="number" min="0" step="1" value="15">
+        </label>
+        <label>
+          Мин. стабильность
+          <select id="notifyMinStability">
+            <option value="1">1 замер</option>
+            <option value="2" selected>2 замера</option>
+            <option value="3">3 замера</option>
+            <option value="6">6 замеров</option>
+          </select>
+        </label>
+        <label>
+          Повтор не чаще, минут
+          <input id="notifyCooldown" type="number" min="5" step="5" value="30">
+        </label>
+        <label class="checkbox-control notification-checkbox">
+          <input id="notifyRequireConfirmed" type="checkbox" checked>
+          <span>Только две подтверждённые цены</span>
+          <small class="control-hint">Повторный сигнал приходит, если прибыль выросла минимум на 25%.</small>
+        </label>
+      </div>
+    </section>
+
     <section class="summary-grid" aria-label="Сводка">
       <article class="summary-card">
         <span>Найдено операций</span>
@@ -101,6 +143,10 @@
       <article class="summary-card">
         <span>Аукцион GGG, прошлый час</span>
         <strong id="cxStatus">—</strong>
+      </article>
+      <article class="summary-card">
+        <span>Серверная история</span>
+        <strong id="serverHistoryStatus">—</strong>
       </article>
       <article class="summary-card">
         <span>Последнее обновление</span>
@@ -184,12 +230,12 @@
     </section>
 
     <section class="notice">
-      <strong>Как работает проверка:</strong> poe.ninja ищет кандидатов, poe.watch подтверждает текущую агрегированную оценку, а официальный Currency Exchange API добавляет фактический диапазон курсов и объём последнего завершённого часа. Текущий час API GGG не отдаёт, поэтому финальный курс всё равно проверяется у Фаустуса в игре. Камни и уникальные предметы обычно не имеют полного подтверждения Currency Exchange.
+      <strong>Как работает проверка:</strong> poe.ninja ищет кандидатов, poe.watch подтверждает текущую оценку, а отдельный Cloudflare Worker сохраняет снимки в D1 каждые 15 минут. Уведомления работают, когда сайт открыт или оставлен в фоновой вкладке. Для уведомлений при полностью закрытом браузере позднее потребуется Web Push.
     </section>
   </main>
 
   <footer>
-    Данные: poe.ninja, poe.watch и официальный Currency Exchange API GGG. This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
+    Данные: poe.ninja, poe.watch, Cloudflare D1 и официальный Currency Exchange API GGG. This product isn't affiliated with or endorsed by Grinding Gear Games in any way.
   </footer>
 
   <script type="module" src="./app.js"></script>

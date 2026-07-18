@@ -1,4 +1,4 @@
-const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.7.0 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
+const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.8.0 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
 const CACHE_SECONDS = 600;
 
 function textResponse(message, status) {

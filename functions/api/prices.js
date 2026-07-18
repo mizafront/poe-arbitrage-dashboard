@@ -2,7 +2,7 @@ const ALLOWED_TYPES = new Set([
   "Oil", "Essence", "DivinationCard", "Currency", "Fragment", "UniqueMap", "Scarab",
   "SkillGem", "UniqueAccessory", "UniqueWeapon", "UniqueArmour", "UniqueFlask", "UniqueJewel"
 ]);
-const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.7.0 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
+const APP_USER_AGENT = "PoE-Arbitrage-Dashboard/0.8.0 (+https://poe-arbitrage-dashboard.pages.dev; economy analysis)";
 const CACHE_SECONDS = 300;
 
 function textResponse(message, status) {

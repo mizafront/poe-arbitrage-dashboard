@@ -10,12 +10,16 @@ import {
   normalizeCurrencyExchange,
   normalizeExchange,
   normalizePoeWatch,
+  priceDiscrepancyPercent,
   recipeKey
 } from "./core.js";
 import { FIXED_CARD_REWARD_CATALOG } from "./cards.js";
 
-const SETTINGS_KEY = "poe-arbitrage-settings:v7";
-const HISTORY_PREFIX = "poe-arbitrage-history:v7:";
+const SETTINGS_KEY = "poe-arbitrage-settings:v8";
+const LEGACY_SETTINGS_KEY = "poe-arbitrage-settings:v7";
+const HISTORY_PREFIX = "poe-arbitrage-history:v8:";
+const LEGACY_HISTORY_PREFIX = "poe-arbitrage-history:v7:";
+const NOTIFICATION_STATE_KEY = "poe-arbitrage-notifications:v8";
 const MAX_HISTORY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_HISTORY_SNAPSHOTS = 600;
 const DEMO_MODE = new URLSearchParams(window.location.search).get("demo") === "1";
@@ -24,6 +28,13 @@ const state = {
   pairs: [],
   rows: [],
   history: [],
+  serverHistory: new Map(),
+  serverHistoryConfigured: false,
+  serverHistoryAvailable: false,
+  serverHistorySnapshotCount: 0,
+  serverHistoryLatestRun: null,
+  notificationMemory: {},
+  notificationsEnabled: false,
   activeCategory: "all",
   activeCardCategory: "all",
   sourcePrimary: "Chaos Orb",
@@ -36,6 +47,7 @@ const state = {
   cxMatchCount: 0,
   cxHour: Number.NaN,
   cxError: "",
+  notificationForceNext: false,
   autoTimer: null,
   countdownTimer: null,
   nextRefreshAt: 0,
@@ -51,6 +63,14 @@ const elements = {
   minStability: document.querySelector("#minStability"),
   maxDiscrepancy: document.querySelector("#maxDiscrepancy"),
   useSecondSource: document.querySelector("#useSecondSource"),
+  notificationButton: document.querySelector("#notificationButton"),
+  testNotification: document.querySelector("#testNotificationButton"),
+  notificationStatus: document.querySelector("#notificationStatus"),
+  notifyMinProfit: document.querySelector("#notifyMinProfit"),
+  notifyMinRoi: document.querySelector("#notifyMinRoi"),
+  notifyMinStability: document.querySelector("#notifyMinStability"),
+  notifyCooldown: document.querySelector("#notifyCooldown"),
+  notifyRequireConfirmed: document.querySelector("#notifyRequireConfirmed"),
   buyPremium: document.querySelector("#buyPremium"),
   sellDiscount: document.querySelector("#sellDiscount"),
   autoRefresh: document.querySelector("#autoRefresh"),
@@ -69,6 +89,7 @@ const elements = {
   stableCount: document.querySelector("#stableCount"),
   confirmedCount: document.querySelector("#confirmedCount"),
   cxStatus: document.querySelector("#cxStatus"),
+  serverHistoryStatus: document.querySelector("#serverHistoryStatus"),
   updated: document.querySelector("#updatedAt"),
   tabs: [...document.querySelectorAll(".tab")],
   cardSubtabsContainer: document.querySelector("#cardSubtabs"),
@@ -88,6 +109,12 @@ function settings() {
     minStability: Math.max(1, numberInput(elements.minStability, 1)),
     maxDiscrepancy: Math.max(0, numberInput(elements.maxDiscrepancy, 0)),
     useSecondSource: Boolean(elements.useSecondSource?.checked),
+    notifyMinProfit: Math.max(0, numberInput(elements.notifyMinProfit, 10)),
+    notifyMinRoi: Math.max(0, numberInput(elements.notifyMinRoi, 15)),
+    notifyMinStability: Math.max(1, numberInput(elements.notifyMinStability, 2)),
+    notifyCooldown: Math.max(5, numberInput(elements.notifyCooldown, 30)),
+    notifyRequireConfirmed: Boolean(elements.notifyRequireConfirmed?.checked),
+    notificationsEnabled: Boolean(state.notificationsEnabled),
     buyPremium: Math.max(0, numberInput(elements.buyPremium, 0)),
     sellDiscount: Math.max(0, numberInput(elements.sellDiscount, 0)),
     autoRefresh: Math.max(0, numberInput(elements.autoRefresh, 0)),
@@ -106,7 +133,7 @@ function saveSettings() {
 
 function loadSettings() {
   try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null");
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? localStorage.getItem(LEGACY_SETTINGS_KEY) ?? "null");
     if (!saved || typeof saved !== "object") return;
     const mapping = {
       budget: elements.budget,
@@ -114,6 +141,10 @@ function loadSettings() {
       minRoi: elements.minRoi,
       minStability: elements.minStability,
       maxDiscrepancy: elements.maxDiscrepancy,
+      notifyMinProfit: elements.notifyMinProfit,
+      notifyMinRoi: elements.notifyMinRoi,
+      notifyMinStability: elements.notifyMinStability,
+      notifyCooldown: elements.notifyCooldown,
       buyPremium: elements.buyPremium,
       sellDiscount: elements.sellDiscount,
       autoRefresh: elements.autoRefresh,
@@ -126,6 +157,10 @@ function loadSettings() {
     if (elements.useSecondSource && saved.useSecondSource !== undefined) {
       elements.useSecondSource.checked = Boolean(saved.useSecondSource);
     }
+    if (elements.notifyRequireConfirmed && saved.notifyRequireConfirmed !== undefined) {
+      elements.notifyRequireConfirmed.checked = Boolean(saved.notifyRequireConfirmed);
+    }
+    state.notificationsEnabled = Boolean(saved.notificationsEnabled);
   } catch (error) {
     console.warn("Не удалось прочитать настройки:", error);
   }
@@ -135,9 +170,13 @@ function historyKey(league) {
   return `${HISTORY_PREFIX}${league}`;
 }
 
+function legacyHistoryKey(league) {
+  return `${LEGACY_HISTORY_PREFIX}${league}`;
+}
+
 function loadHistory(league) {
   try {
-    const history = JSON.parse(localStorage.getItem(historyKey(league)) ?? "[]");
+    const history = JSON.parse(localStorage.getItem(historyKey(league)) ?? localStorage.getItem(legacyHistoryKey(league)) ?? "[]");
     const cutoff = Date.now() - MAX_HISTORY_AGE_MS;
     return Array.isArray(history)
       ? history.filter((snapshot) => Number(snapshot?.ts) >= cutoff && snapshot?.prices)
@@ -193,6 +232,77 @@ function appendSnapshot(league, snapshot) {
   saveHistory(league, state.history);
 }
 
+
+function loadNotificationMemory() {
+  try {
+    const value = JSON.parse(localStorage.getItem(NOTIFICATION_STATE_KEY) ?? "{}");
+    state.notificationMemory = value && typeof value === "object" ? value : {};
+  } catch {
+    state.notificationMemory = {};
+  }
+}
+
+function saveNotificationMemory() {
+  try {
+    localStorage.setItem(NOTIFICATION_STATE_KEY, JSON.stringify(state.notificationMemory));
+  } catch (error) {
+    console.warn("Не удалось сохранить состояние уведомлений:", error);
+  }
+}
+
+function serverRecordOpportunity(pair, record, currentSettings) {
+  const makeItem = (side) => {
+    const ninjaPrice = Number(record?.[`${side}_ninja`]);
+    const watchPrice = Number(record?.[`${side}_watch`]);
+    const sources = Number(record?.[`${side}_sources`] ?? 1);
+    return {
+      ...(side === "input" ? pair.input : pair.output),
+      price: Number.isFinite(ninjaPrice) ? ninjaPrice : watchPrice,
+      ninjaPrice: Number.isFinite(ninjaPrice) ? ninjaPrice : Number.NaN,
+      watchPrice: Number.isFinite(watchPrice) ? watchPrice : Number.NaN,
+      sources,
+      watchVolume: Number(record?.[`${side}_watch_volume`] ?? 0),
+      discrepancy: priceDiscrepancyPercent(ninjaPrice, watchPrice)
+    };
+  };
+  return calculateOpportunity({
+    ...pair,
+    input: makeItem("input"),
+    output: makeItem("output"),
+    ratio: Number(record?.ratio ?? pair.ratio),
+    outputQuantity: Number(record?.output_quantity ?? pair.outputQuantity ?? 1)
+  }, currentSettings);
+}
+
+async function loadServerHistory(league, pairs) {
+  state.serverHistory = new Map();
+  state.serverHistoryConfigured = false;
+  state.serverHistoryAvailable = false;
+  state.serverHistorySnapshotCount = 0;
+  state.serverHistoryLatestRun = null;
+  if (DEMO_MODE) return;
+
+  try {
+    const payload = await fetchJson("/api/history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ league, hours: 24, keys: pairs.map(recipeKey) })
+    });
+    state.serverHistoryConfigured = Boolean(payload?.configured);
+    state.serverHistoryAvailable = Boolean(payload?.available);
+    state.serverHistorySnapshotCount = Number(payload?.snapshotCount ?? 0);
+    state.serverHistoryLatestRun = payload?.latestRun ?? null;
+    for (const record of payload?.snapshots ?? []) {
+      const key = String(record?.recipe_key ?? "");
+      if (!key) continue;
+      if (!state.serverHistory.has(key)) state.serverHistory.set(key, []);
+      state.serverHistory.get(key).push(record);
+    }
+  } catch (error) {
+    console.warn("Серверная история недоступна:", error);
+  }
+}
+
 function opportunityAtSnapshot(pair, snapshot, currentSettings) {
   const inputCategory = pair.inputCategory ?? pair.category;
   const outputCategory = pair.outputCategory ?? pair.category;
@@ -207,9 +317,22 @@ function opportunityAtSnapshot(pair, snapshot, currentSettings) {
 }
 
 function historyMetrics(pair, currentSettings) {
-  const points = state.history
-    .map((snapshot) => ({ snapshot, opportunity: opportunityAtSnapshot(pair, snapshot, currentSettings) }))
-    .filter((point) => point.opportunity);
+  const serverRecords = state.serverHistory.get(recipeKey(pair)) ?? [];
+  const serverPoints = serverRecords.map((record) => ({
+    ts: Number(record.captured_at) * 1000,
+    opportunity: serverRecordOpportunity(pair, record, currentSettings)
+  })).filter((point) => point.opportunity);
+  if (serverPoints.length) {
+    const lastTimestamp = serverPoints.at(-1)?.ts ?? 0;
+    if (Date.now() - lastTimestamp > 60_000) {
+      serverPoints.push({ ts: Date.now(), opportunity: calculateOpportunity(pair, currentSettings) });
+    }
+  }
+  const points = serverPoints.length
+    ? serverPoints
+    : state.history
+        .map((snapshot) => ({ ts: snapshot.ts, opportunity: opportunityAtSnapshot(pair, snapshot, currentSettings) }))
+        .filter((point) => point.opportunity);
 
   let streak = 0;
   for (let index = points.length - 1; index >= 0; index -= 1) {
@@ -222,13 +345,13 @@ function historyMetrics(pair, currentSettings) {
   let baselinePoint = null;
   if (points.length > 1) {
     const target = Date.now() - 60 * 60 * 1000;
-    baselinePoint = [...points].reverse().find((point) => point.snapshot.ts <= target) ?? points[0];
+    baselinePoint = [...points].reverse().find((point) => point.ts <= target) ?? points[0];
   }
   const marginTrend = current && baselinePoint
     ? current.profit - baselinePoint.opportunity.profit
     : Number.NaN;
 
-  return { samples: points.length, streak, marginTrend };
+  return { samples: points.length, streak, marginTrend, historySource: serverRecords.length ? "server" : "local" };
 }
 
 function confidenceBreakdown(row, metrics) {
@@ -241,7 +364,7 @@ function confidenceBreakdown(row, metrics) {
   let score = 0;
   const historyPoints = Math.min(15, metrics.samples * 3);
   score += add(metrics.samples
-    ? `История: ${metrics.samples} замеров`
+    ? `${metrics.historySource === "server" ? "Серверная" : "Локальная"} история: ${metrics.samples} замеров`
     : "История ещё не накоплена", historyPoints, metrics.samples ? "positive" : "neutral");
 
   const stabilityPoints = Math.min(15, metrics.streak * 5);
@@ -529,6 +652,13 @@ function render() {
         ? `${state.cxMatchCount} совп. / ${state.cxMarketCount} рынков`
         : "нет данных";
   }
+  if (elements.serverHistoryStatus) {
+    elements.serverHistoryStatus.textContent = !state.serverHistoryConfigured
+      ? "не настроена"
+      : state.serverHistoryAvailable
+        ? `${state.serverHistorySnapshotCount.toLocaleString("ru-RU")} замеров`
+        : "пока пусто";
+  }
 
   if (!rows.length) {
     elements.body.innerHTML = `<tr><td colspan="15" class="empty-state">${escapeHtml(emptyReason(diagnostics, currentSettings))}</td></tr>`;
@@ -574,8 +704,143 @@ function render() {
   }).join("");
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
+
+function notificationSupported() {
+  return "Notification" in window && window.isSecureContext;
+}
+
+function updateNotificationUi() {
+  if (!elements.notificationStatus || !elements.notificationButton) return;
+  if (!notificationSupported()) {
+    elements.notificationStatus.className = "notification-status error";
+    elements.notificationStatus.textContent = "Этот браузер или текущий адрес не поддерживает уведомления. Нужен HTTPS.";
+    elements.notificationButton.disabled = true;
+    elements.testNotification.disabled = true;
+    return;
+  }
+
+  const permission = Notification.permission;
+  if (permission === "denied") {
+    elements.notificationStatus.className = "notification-status error";
+    elements.notificationStatus.textContent = "Уведомления заблокированы в настройках браузера для этого сайта.";
+    elements.notificationButton.textContent = "Заблокировано";
+    elements.notificationButton.disabled = true;
+    return;
+  }
+
+  const enabled = state.notificationsEnabled && permission === "granted";
+  elements.notificationStatus.className = `notification-status ${enabled ? "success" : "warning"}`;
+  elements.notificationStatus.textContent = enabled
+    ? "Уведомления включены. Сигналы приходят, пока сайт открыт или находится в фоновой вкладке."
+    : permission === "granted"
+      ? "Разрешение выдано, но сигналы выключены кнопкой."
+      : "Нажмите «Включить уведомления» и разрешите их в браузере.";
+  elements.notificationButton.textContent = enabled ? "Выключить уведомления" : "Включить уведомления";
+  elements.notificationButton.disabled = false;
+  elements.testNotification.disabled = permission !== "granted";
+}
+
+function showNotification(title, body, tag = "poe-arbitrage") {
+  if (!notificationSupported() || Notification.permission !== "granted") return false;
+  try {
+    const notification = new Notification(title, {
+      body,
+      tag,
+      renotify: true,
+      icon: "/icon.svg"
+    });
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+    return true;
+  } catch (error) {
+    console.warn("Не удалось показать уведомление:", error);
+    return false;
+  }
+}
+
+async function toggleNotifications() {
+  if (!notificationSupported()) {
+    updateNotificationUi();
+    return;
+  }
+  if (state.notificationsEnabled && Notification.permission === "granted") {
+    state.notificationsEnabled = false;
+    saveSettings();
+    updateNotificationUi();
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+  state.notificationsEnabled = permission === "granted";
+  state.notificationForceNext = state.notificationsEnabled;
+  saveSettings();
+  updateNotificationUi();
+  if (state.notificationsEnabled && state.rows.length) {
+    processNotifications({ force: true });
+    state.notificationForceNext = false;
+  }
+}
+
+function testNotification() {
+  if (Notification.permission !== "granted") return;
+  showNotification(
+    "PoE Arbitrage Dashboard",
+    "Тестовое уведомление работает. Новые выгодные сигналы будут выглядеть примерно так.",
+    "poe-arbitrage-test"
+  );
+}
+
+function notificationEligible(row, currentSettings) {
+  if (row.profit < currentSettings.notifyMinProfit) return false;
+  if (row.roi < currentSettings.notifyMinRoi) return false;
+  if (row.streak < currentSettings.notifyMinStability) return false;
+  if (currentSettings.notifyRequireConfirmed && !row.bothSources) return false;
+  if (currentSettings.maxDiscrepancy > 0 && Number.isFinite(row.maxDiscrepancy) && row.maxDiscrepancy > currentSettings.maxDiscrepancy) return false;
+  return true;
+}
+
+function processNotifications({ force = false } = {}) {
+  if (DEMO_MODE || !state.notificationsEnabled || !notificationSupported() || Notification.permission !== "granted") return;
+  const currentSettings = settings();
+  const now = Date.now();
+  const cooldownMs = currentSettings.notifyCooldown * 60_000;
+  const eligible = state.rows.filter((row) => notificationEligible(row, currentSettings));
+  const eligibleKeys = new Set(eligible.map((row) => row.key));
+
+  for (const [key, memory] of Object.entries(state.notificationMemory)) {
+    if (!eligibleKeys.has(key)) state.notificationMemory[key] = { ...memory, active: false };
+  }
+
+  let sent = 0;
+  for (const row of eligible.sort((a, b) => b.confidence - a.confidence || b.profit - a.profit)) {
+    if (sent >= 3) break;
+    const previous = state.notificationMemory[row.key] ?? {};
+    const cooldownPassed = now - Number(previous.lastNotifiedAt ?? 0) >= cooldownMs;
+    const profitGrew = row.profit >= Math.max(Number(previous.lastProfit ?? 0) * 1.25, Number(previous.lastProfit ?? 0) + 1);
+    const shouldNotify = force || !previous.active || (cooldownPassed && profitGrew);
+
+    if (shouldNotify) {
+      const category = row.category === "oil" ? "Масла" : row.category === "essence" ? "Эссенции" : "Карточки";
+      const body = `${row.ratio} × ${row.input.name} → ${row.outputQuantity ?? 1} × ${row.output.name}\nПрибыль ${formatChaos(row.profit)}, ROI ${formatPercent(row.roi)}, стабильность ${row.streak} зам.`;
+      if (showNotification(`${category}: найден выгодный сигнал`, body, `poe-arbitrage-${row.key}`)) sent += 1;
+      state.notificationMemory[row.key] = {
+        active: true,
+        lastNotifiedAt: now,
+        lastProfit: row.profit,
+        lastSeenAt: now
+      };
+    } else {
+      state.notificationMemory[row.key] = { ...previous, active: true, lastSeenAt: now };
+    }
+  }
+  saveNotificationMemory();
+}
+
+async function fetchJson(url, options = {}) {
+  const headers = { Accept: "application/json", ...(options.headers ?? {}) };
+  const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
     const message = await response.text().catch(() => "");
     throw new Error(`${response.status} ${response.statusText}${message ? `: ${message}` : ""}`);
@@ -878,6 +1143,7 @@ async function refreshData({ silent = false } = {}) {
       "unique-flask": uniqueFlasks,
       "unique-jewel": uniqueJewels
     }));
+    await loadServerHistory(league, state.pairs);
     recalculateRows();
     saveSettings();
 
@@ -897,14 +1163,21 @@ async function refreshData({ silent = false } = {}) {
         ? ` Currency Exchange: ${cxExchange.markets.length} рынков за ${formatExchangeHour(cxExchange.hour)}, совпало позиций ${state.cxMatchCount}.`
         : ` Currency Exchange: данных нет${state.cxError ? ` (${state.cxError})` : ""}.`;
     const uniqueMarketCount = uniqueAccessories.length + uniqueWeapons.length + uniqueArmours.length + uniqueFlasks.length + uniqueJewels.length;
-    elements.status.textContent = `${DEMO_MODE ? "Демо. " : ""}poe.ninja: ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек, ${currencies.length} валют, ${fragments.length} фрагментов, ${uniqueMaps.length} уникальных карт, ${scarabs.length} скараба, ${skillGems.length} камней, ${uniqueMarketCount} уникальных предметов. ${watchText}${cxText}${optionalText} Карточные цепочки: ${cardPairs.length} (валюта ${cardCounts.currency ?? 0}, карты/фрагменты ${cardCounts["map-fragment"] ?? 0}, скарабы ${cardCounts.scarab ?? 0}, камни ${cardCounts.gem ?? 0}, уникальные ${cardCounts.unique ?? 0}). История: ${state.history.length}.`;
+    const serverHistoryText = !state.serverHistoryConfigured
+      ? " Серверная история не настроена."
+      : state.serverHistoryAvailable
+        ? ` Серверная история: ${state.serverHistorySnapshotCount} замеров за последние 24 часа.`
+        : " Серверная история настроена, но пока не накопила данные.";
+    elements.status.textContent = `${DEMO_MODE ? "Демо. " : ""}poe.ninja: ${oils.length} масел, ${essences.length} эссенций, ${cards.length} карточек, ${currencies.length} валют, ${fragments.length} фрагментов, ${uniqueMaps.length} уникальных карт, ${scarabs.length} скараба, ${skillGems.length} камней, ${uniqueMarketCount} уникальных предметов. ${watchText}${cxText}${optionalText} Карточные цепочки: ${cardPairs.length} (валюта ${cardCounts.currency ?? 0}, карты/фрагменты ${cardCounts["map-fragment"] ?? 0}, скарабы ${cardCounts.scarab ?? 0}, камни ${cardCounts.gem ?? 0}, уникальные ${cardCounts.unique ?? 0}). Локальная история: ${state.history.length}.${serverHistoryText}`;
     render();
+    processNotifications({ force: state.notificationForceNext });
+    state.notificationForceNext = false;
     scheduleAutoRefresh();
   } catch (error) {
     console.error(error);
     elements.status.className = "status error";
     elements.status.textContent = `Не удалось получить основные данные poe.ninja: ${error.message}`;
-    elements.body.innerHTML = `<tr><td colspan="15" class="empty-state">Проверьте /api/leagues, /api/prices, /api/watch и /api/currency-exchange. Для демо откройте адрес с параметром ?demo=1.</td></tr>`;
+    elements.body.innerHTML = `<tr><td colspan="15" class="empty-state">Проверьте /api/leagues, /api/prices, /api/watch, /api/history и /api/currency-exchange. Для демо откройте адрес с параметром ?demo=1.</td></tr>`;
   } finally {
     state.isRefreshing = false;
     elements.refresh.disabled = false;
@@ -924,8 +1197,7 @@ function scheduleAutoRefresh() {
   const delay = minutes * 60 * 1000;
   state.nextRefreshAt = Date.now() + delay;
   state.autoTimer = setTimeout(() => {
-    if (document.visibilityState === "visible") refreshData({ silent: true });
-    else scheduleAutoRefresh();
+    refreshData({ silent: true });
   }, delay);
   updateCountdown();
   state.countdownTimer = setInterval(updateCountdown, 1000);
@@ -982,7 +1254,7 @@ function clearHistory() {
   recalculateRows();
   render();
   elements.status.className = "status success";
-  elements.status.textContent = `История лиги ${league} очищена. Новый замер появится после обновления цен.`;
+  elements.status.textContent = `Локальная история лиги ${league} очищена. Серверная история D1 не удалена.`;
 }
 
 function resetFilters() {
@@ -1000,7 +1272,8 @@ function resetFilters() {
 const recalculationInputs = [
   elements.budget, elements.minProfit, elements.minRoi, elements.minStability,
   elements.maxDiscrepancy, elements.useSecondSource, elements.buyPremium,
-  elements.sellDiscount, elements.sort
+  elements.sellDiscount, elements.sort, elements.notifyMinProfit, elements.notifyMinRoi,
+  elements.notifyMinStability, elements.notifyCooldown, elements.notifyRequireConfirmed
 ];
 
 for (const input of recalculationInputs) {
@@ -1027,6 +1300,8 @@ elements.refresh.addEventListener("click", () => refreshData());
 elements.export.addEventListener("click", exportCsv);
 elements.clearHistory.addEventListener("click", clearHistory);
 elements.resetFilters?.addEventListener("click", resetFilters);
+elements.notificationButton?.addEventListener("click", toggleNotifications);
+elements.testNotification?.addEventListener("click", testNotification);
 elements.league.addEventListener("change", () => refreshData());
 elements.league.addEventListener("keydown", (event) => { if (event.key === "Enter") refreshData(); });
 
@@ -1067,7 +1342,9 @@ document.addEventListener("visibilitychange", () => {
 });
 
 (async function init() {
+  loadNotificationMemory();
   loadSettings();
+  updateNotificationUi();
   syncCardSubtabs();
   await loadLeagues();
   await refreshData();

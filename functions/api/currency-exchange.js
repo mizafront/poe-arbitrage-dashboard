@@ -8,7 +8,7 @@ let memoryToken = "";
 function gggUserAgent(env) {
   const clientId = env?.POE_CLIENT_ID?.trim?.() || "poe-arbitrage-dashboard";
   const contact = env?.POE_CONTACT?.trim?.() || "https://poe-arbitrage-dashboard.pages.dev";
-  return `OAuth ${clientId}/0.7.0 (contact: ${contact}) PoE-Arbitrage-Dashboard`;
+  return `OAuth ${clientId}/0.8.0 (contact: ${contact}) PoE-Arbitrage-Dashboard`;
 }
 
 function jsonResponse(payload, status = 200, extraHeaders = {}) {
