@@ -11,4 +11,5 @@ database_id = "eaf554fe-f3cd-4958-99c4-9589388344dc"
 crons = ["*/15 * * * *"]
 
 [vars]
-COLLECT_LEAGUES = "aut
+COLLECT_LEAGUES = "auto"
+RETENTION_DAYS = "14"
