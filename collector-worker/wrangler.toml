@@ -1,6 +1,7 @@
 name = "poe-arbitrage-history-collector"
 main = "src/index.js"
 compatibility_date = "2026-07-17"
+
 [[d1_databases]]
 binding = "PRICE_HISTORY"
 database_name = "poe-arbitrage-history"
@@ -9,8 +10,5 @@ database_id = "eaf554fe-f3cd-4958-99c4-9589388344dc"
 [triggers]
 crons = ["*/15 * * * *"]
 
-# D1 binding and Cron can be added through the Cloudflare dashboard.
-# For CLI deployment, copy wrangler.example.toml settings here and insert your database_id.
-
-# Before enabling scheduled collection, copy the following blocks from
-# wrangler.example.toml and replace PASTE_YOUR_D1_DATABASE_ID.
+[vars]
+COLLECT_LEAGUES = "aut
