@@ -1003,3 +1003,168 @@ table { min-width: 1780px; }
   font-weight: 700;
 }
 /* TRIANGULAR_CATEGORIES_V011_END */
+
+/* TRIANGULAR_DIAGNOSTICS_V0111_START */
+.triangle-diagnostics {
+  margin-top: 14px;
+  padding: 0 13px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.triangle-diagnostics > summary {
+  cursor: pointer;
+  padding: 12px 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.triangle-diagnostic-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 9px;
+}
+
+.triangle-diagnostic-metrics > div {
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.triangle-diagnostic-metrics span {
+  display: block;
+  min-height: 28px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.triangle-diagnostic-metrics strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 18px;
+}
+
+.triangle-diagnostic-help {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.triangle-reject-reasons,
+.triangle-nearest-routes {
+  margin-top: 14px;
+}
+
+.triangle-reject-reasons h4,
+.triangle-nearest-routes h4 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.triangle-reason-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.triangle-reason-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.triangle-reason-row strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.triangle-nearest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.triangle-nearest-head > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.triangle-nearest-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.triangle-nearest-card {
+  padding: 10px 11px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+
+.triangle-nearest-card > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.triangle-nearest-card > div:first-child strong {
+  font-size: 12px;
+}
+
+.triangle-nearest-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.triangle-nearest-values b {
+  color: var(--text);
+}
+
+.triangle-nearest-card small {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.triangle-diagnostic-empty {
+  margin-top: 9px;
+  padding: 10px 11px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 800px) {
+  .triangle-diagnostic-metrics {
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .triangle-diagnostic-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .triangle-nearest-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+/* TRIANGULAR_DIAGNOSTICS_V0111_END */

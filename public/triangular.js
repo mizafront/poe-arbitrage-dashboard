@@ -2,7 +2,7 @@
 
 import {
   buildDirectedExchangeEdges,
-  findTriangularCycles,
+  analyzeTriangularCycles,
   supportedCurrencies,
   supportedIntermediateCategories,
 } from "./triangular-core.js";
@@ -13,6 +13,7 @@ const state = {
   payload: null,
   graph: null,
   cycles: [],
+  analysis: null,
   loading: false,
 };
 
@@ -153,6 +154,37 @@ function panelMarkup() {
 
       <div id="triangleCategorySummary" class="triangle-category-summary"></div>
 
+      <details id="triangleDiagnostics" class="triangle-diagnostics" open>
+        <summary>Диагностика поиска</summary>
+
+        <div class="triangle-diagnostic-metrics">
+          <div>
+            <span>Полных маршрутов проверено</span>
+            <strong id="triangleCheckedRoutes">—</strong>
+          </div>
+          <div>
+            <span>Технически исполнимо</span>
+            <strong id="triangleExecutableRoutes">—</strong>
+          </div>
+          <div>
+            <span>Отброшено</span>
+            <strong id="triangleRejectedRoutes">—</strong>
+          </div>
+          <div>
+            <span>Принято</span>
+            <strong id="triangleAcceptedRoutes">—</strong>
+          </div>
+        </div>
+
+        <p class="triangle-diagnostic-help">
+          Каждый полный маршрут учитывается один раз — по первой причине,
+          из-за которой он был отклонён.
+        </p>
+
+        <div id="triangleRejectReasons" class="triangle-reject-reasons"></div>
+        <div id="triangleNearestRoutes" class="triangle-nearest-routes"></div>
+      </details>
+
       <div id="triangleStatus" class="triangle-status" aria-live="polite">
         Подготовка модуля…
       </div>
@@ -196,6 +228,12 @@ function elements() {
     maxUtilization: document.querySelector("#triangleMaxUtilization"),
     categoryOptions: document.querySelector("#triangleCategoryOptions"),
     categorySummary: document.querySelector("#triangleCategorySummary"),
+    checkedRoutes: document.querySelector("#triangleCheckedRoutes"),
+    executableRoutes: document.querySelector("#triangleExecutableRoutes"),
+    rejectedRoutes: document.querySelector("#triangleRejectedRoutes"),
+    acceptedRoutes: document.querySelector("#triangleAcceptedRoutes"),
+    rejectReasons: document.querySelector("#triangleRejectReasons"),
+    nearestRoutes: document.querySelector("#triangleNearestRoutes"),
     refresh: document.querySelector("#triangleRefresh"),
     status: document.querySelector("#triangleStatus"),
     results: document.querySelector("#triangleResults"),
@@ -432,6 +470,156 @@ function renderCycle(cycle, index) {
   `;
 }
 
+const REJECTION_LABELS = {
+  spread: "Слишком большой разброс курса",
+  lowObservedLots: "Меньше трёх наблюдавшихся лотов",
+  wholeLot: "Нельзя выполнить следующий целый лот",
+  liquidity: "Превышена допустимая доля часового объёма",
+  noProfit: "Результат не превышает стартовый бюджет",
+  minProfit: "Прибыль ниже заданного минимума",
+  minRoi: "ROI ниже заданного минимума",
+};
+
+function nearestReasonText(cycle) {
+  if (cycle.rejectionReason === "noProfit") {
+    return cycle.gapToBreakEven > 0
+      ? `До безубыточности не хватает ${formatNumber(
+          cycle.gapToBreakEven,
+          0,
+        )} ${escapeHtml(cycle.startCurrency.short)}`
+      : "Маршрут вышел ровно в ноль";
+  }
+
+  if (cycle.rejectionReason === "minProfit") {
+    return `До фильтра прибыли не хватает ${formatNumber(
+      cycle.gapToMinProfit,
+      0,
+    )} ${escapeHtml(cycle.startCurrency.short)}`;
+  }
+
+  return `До фильтра ROI не хватает ${formatNumber(
+    cycle.gapToMinRoi,
+    2,
+  )} п.п.`;
+}
+
+function renderSearchDiagnostics(analysis) {
+  const ui = elements();
+  const diagnostics = analysis?.diagnostics;
+
+  if (!diagnostics) {
+    for (const element of [
+      ui.checkedRoutes,
+      ui.executableRoutes,
+      ui.rejectedRoutes,
+      ui.acceptedRoutes,
+    ]) {
+      if (element) element.textContent = "—";
+    }
+
+    if (ui.rejectReasons) ui.rejectReasons.innerHTML = "";
+    if (ui.nearestRoutes) ui.nearestRoutes.innerHTML = "";
+    return;
+  }
+
+  ui.checkedRoutes.textContent =
+    diagnostics.potentialRoutes.toLocaleString("ru-RU");
+  ui.executableRoutes.textContent =
+    diagnostics.technicallyExecutable.toLocaleString("ru-RU");
+  ui.rejectedRoutes.textContent =
+    diagnostics.rejectedTotal.toLocaleString("ru-RU");
+  ui.acceptedRoutes.textContent =
+    diagnostics.accepted.toLocaleString("ru-RU");
+
+  const reasonEntries = Object.entries(
+    diagnostics.rejected,
+  ).filter(([, count]) => count > 0);
+
+  ui.rejectReasons.innerHTML = reasonEntries.length
+    ? `
+      <h4>Почему маршруты отклонены</h4>
+      <div class="triangle-reason-list">
+        ${reasonEntries
+          .map(
+            ([reason, count]) => `
+              <div class="triangle-reason-row">
+                <span>${escapeHtml(
+                  REJECTION_LABELS[reason] ?? reason,
+                )}</span>
+                <strong>${count.toLocaleString("ru-RU")}</strong>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+    `
+    : `
+      <div class="triangle-diagnostic-empty">
+        Отклонённых полных маршрутов нет.
+      </div>
+    `;
+
+  const nearest = Array.isArray(analysis.nearest)
+    ? analysis.nearest.slice(0, 3)
+    : [];
+
+  if (!nearest.length) {
+    ui.nearestRoutes.innerHTML = `
+      <div class="triangle-nearest-head">
+        <h4>Ближайшие к прибыли</h4>
+      </div>
+      <div class="triangle-diagnostic-empty">
+        Нет технически исполнимых отклонённых маршрутов для сравнения.
+      </div>
+    `;
+    return;
+  }
+
+  ui.nearestRoutes.innerHTML = `
+    <div class="triangle-nearest-head">
+      <h4>Ближайшие к прибыли</h4>
+      <span>Не являются торговыми сигналами</span>
+    </div>
+
+    <div class="triangle-nearest-list">
+      ${nearest
+        .map(
+          (cycle, index) => `
+            <article class="triangle-nearest-card">
+              <div>
+                <span class="triangle-rank">#${index + 1}</span>
+                <strong>${escapeHtml(routeText(cycle))}</strong>
+              </div>
+
+              <div class="triangle-nearest-values">
+                <span>
+                  Итог:
+                  <b>${formatNumber(cycle.safeResult, 0)}
+                  ${escapeHtml(cycle.startCurrency.short)}</b>
+                </span>
+                <span>
+                  Прибыль:
+                  <b class="${
+                    cycle.safeProfit > 0
+                      ? "triangle-positive"
+                      : "triangle-negative"
+                  }">
+                    ${cycle.safeProfit > 0 ? "+" : ""}
+                    ${formatNumber(cycle.safeProfit, 0)}
+                  </b>
+                </span>
+                <span>ROI: <b>${formatPercent(cycle.roi)}</b></span>
+              </div>
+
+              <small>${nearestReasonText(cycle)}</small>
+            </article>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 function render() {
   const ui = elements();
 
@@ -441,7 +629,12 @@ function render() {
   }
 
   const settings = readSettings();
-  state.cycles = findTriangularCycles(state.graph.edges, settings);
+  state.analysis = analyzeTriangularCycles(
+    state.graph.edges,
+    settings,
+  );
+  state.cycles = state.analysis.cycles;
+  renderSearchDiagnostics(state.analysis);
 
   ui.marketCount.textContent =
     state.graph.diagnostics.usableMarkets.toLocaleString("ru-RU");
@@ -472,10 +665,10 @@ function render() {
       <div class="triangle-empty">
         <strong>Цепочек пока нет</strong>
         <p>
-          Попробуйте уменьшить «Мин. прибыль», снизить запас на шаг,
-          увеличить допустимый разброс или выбрать режим «Средний диапазон».
-          Последний режим менее консервативен и требует особенно тщательной
-          ручной проверки.
+          Посмотрите блок «Диагностика поиска»: он покажет, сколько
+          маршрутов не прошло проверку целых лотов, ликвидности, разброса
+          и прибыльности. Режим «Средний диапазон» менее консервативен
+          и требует особенно тщательной ручной проверки.
         </p>
       </div>
     `;
@@ -550,6 +743,8 @@ async function refresh({ silent = false } = {}) {
     state.payload = null;
     state.graph = null;
     state.cycles = [];
+    state.analysis = null;
+    renderSearchDiagnostics(null);
 
     ui.marketCount.textContent = "—";
     ui.currencyCount.textContent = "—";

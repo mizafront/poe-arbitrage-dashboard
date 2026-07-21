@@ -687,30 +687,183 @@ function cycleRisk(maxSpread, maxUtilization) {
   return "low";
 }
 
-export function findTriangularCycles(edges, options = {}) {
-  const startCurrency = resolveCurrency(options.startCurrency ?? "chaos-orb");
-  if (!startCurrency) return [];
+function createCycleRecord({
+  routeKey,
+  startCurrency,
+  first,
+  second,
+  routeEdges,
+  observedCapacities,
+  safeExecutions,
+  utilizationDetails,
+  budget,
+  grossAmounts,
+  safeAmounts,
+  routeMaxSpread,
+  maxUtilization,
+  mode,
+  safetyPercent,
+  maxSpread,
+  maxVolumeUtilization,
+}) {
+  const grossResult = grossAmounts.at(-1);
+  const safeResult = safeAmounts.at(-1);
+  const grossProfit = grossResult - budget;
+  const safeProfit = safeResult - budget;
+  const roi = (safeProfit / budget) * 100;
+
+  return {
+    key: routeKey,
+    startCurrency,
+    intermediateCategories: [
+      first.to.category,
+      second.to.category,
+    ],
+    currencies: [
+      startCurrency,
+      first.to,
+      second.to,
+      startCurrency,
+    ],
+    edges: routeEdges.map((edge, index) => {
+      const quote = selectedQuote(edge, mode);
+      const execution = safeExecutions[index];
+
+      return {
+        ...edge,
+        chosenRate: quote.rate,
+        safeRate: quote.rate * (1 - safetyPercent / 100),
+        fromLot: quote.fromLot,
+        toLot: quote.toLot,
+        availableInput: execution.availableInput,
+        requiredInput: execution.spentInput,
+        protectedInput: execution.protectedInput,
+        tradeLots: execution.lots,
+        leftoverInput: execution.leftoverInput,
+        resultingAmount: execution.outputAmount,
+        observedLotCapacity: observedCapacities[index],
+        inputUtilizationPercent:
+          utilizationDetails[index].inputPercent,
+        outputUtilizationPercent:
+          utilizationDetails[index].outputPercent,
+        utilizationPercent:
+          utilizationDetails[index].maximumPercent,
+      };
+    }),
+    budget,
+    grossResult,
+    safeResult,
+    grossProfit,
+    safeProfit,
+    roi,
+    maxSpread: routeMaxSpread,
+    maxUtilization,
+    minimumObservedLotCapacity: Math.min(...observedCapacities),
+    risk: cycleRisk(routeMaxSpread, maxUtilization),
+    mode,
+    safetyPercent,
+    effectiveMaxSpread: maxSpread,
+    effectiveMaxVolumeUtilization: maxVolumeUtilization,
+    hardLimits: {
+      maxSpreadPercent: HARD_MAX_SPREAD_PERCENT,
+      maxVolumeUtilizationPercent:
+        HARD_MAX_VOLUME_UTILIZATION_PERCENT,
+      minObservedLots: HARD_MIN_OBSERVED_LOTS,
+    },
+  };
+}
+
+function emptySearchDiagnostics() {
+  return {
+    potentialRoutes: 0,
+    technicallyExecutable: 0,
+    accepted: 0,
+    rejectedTotal: 0,
+    rejected: {
+      spread: 0,
+      lowObservedLots: 0,
+      wholeLot: 0,
+      liquidity: 0,
+      noProfit: 0,
+      minProfit: 0,
+      minRoi: 0,
+    },
+    effectiveLimits: {
+      maxSpreadPercent: HARD_MAX_SPREAD_PERCENT,
+      maxVolumeUtilizationPercent:
+        HARD_MAX_VOLUME_UTILIZATION_PERCENT,
+      minObservedLots: HARD_MIN_OBSERVED_LOTS,
+    },
+  };
+}
+
+function sortedCycles(cycles) {
+  return cycles.sort(
+    (left, right) =>
+      right.safeProfit - left.safeProfit ||
+      right.roi - left.roi ||
+      left.maxUtilization - right.maxUtilization,
+  );
+}
+
+function sortedNearest(cycles) {
+  return cycles
+    .sort(
+      (left, right) =>
+        right.safeProfit - left.safeProfit ||
+        right.safeResult - left.safeResult ||
+        left.maxUtilization - right.maxUtilization,
+    )
+    .slice(0, 5);
+}
+
+export function analyzeTriangularCycles(edges, options = {}) {
+  const diagnostics = emptySearchDiagnostics();
+  const cycles = [];
+  const nearestCandidates = [];
+
+  const startCurrency = resolveCurrency(
+    options.startCurrency ?? "chaos-orb",
+  );
 
   const budget = Math.floor(finiteNonNegative(options.budget, 0));
-  if (!(budget > 0)) return [];
+
+  if (!startCurrency || !(budget > 0)) {
+    return {
+      cycles,
+      nearest: nearestCandidates,
+      diagnostics,
+    };
+  }
 
   const safetyPercent = Math.min(
     25,
     finiteNonNegative(options.safetyPercent, 1),
   );
   const safetyFactor = 1 - safetyPercent / 100;
-  const mode = options.mode === "midpoint" ? "midpoint" : "conservative";
+  const mode =
+    options.mode === "midpoint" ? "midpoint" : "conservative";
   const minProfit = finiteNonNegative(options.minProfit, 0);
   const minRoi = finiteNonNegative(options.minRoi, 0);
+
   const allowedIntermediateCategories = new Set(
     Array.isArray(options.allowedIntermediateCategories)
       ? options.allowedIntermediateCategories
       : ["currency", "essence", "scarab"],
   );
 
-  if (!allowedIntermediateCategories.size) return [];
+  if (!allowedIntermediateCategories.size) {
+    return {
+      cycles,
+      nearest: nearestCandidates,
+      diagnostics,
+    };
+  }
 
-  const requestedMaxSpread = finiteNonNegative(options.maxSpread, 25);
+  const requestedMaxSpread = finiteNonNegative(
+    options.maxSpread,
+    25,
+  );
   const requestedMaxVolumeUtilization = finiteNonNegative(
     options.maxVolumeUtilization,
     10,
@@ -718,7 +871,10 @@ export function findTriangularCycles(edges, options = {}) {
 
   const maxSpread =
     requestedMaxSpread > 0
-      ? Math.min(requestedMaxSpread, HARD_MAX_SPREAD_PERCENT)
+      ? Math.min(
+          requestedMaxSpread,
+          HARD_MAX_SPREAD_PERCENT,
+        )
       : HARD_MAX_SPREAD_PERCENT;
 
   const maxVolumeUtilization =
@@ -729,19 +885,37 @@ export function findTriangularCycles(edges, options = {}) {
         )
       : HARD_MAX_VOLUME_UTILIZATION_PERCENT;
 
+  diagnostics.effectiveLimits = {
+    maxSpreadPercent: maxSpread,
+    maxVolumeUtilizationPercent: maxVolumeUtilization,
+    minObservedLots: HARD_MIN_OBSERVED_LOTS,
+  };
+
+  const reject = (reason) => {
+    diagnostics.rejected[reason] += 1;
+    diagnostics.rejectedTotal += 1;
+  };
+
   const outgoing = new Map();
 
   for (const edge of Array.isArray(edges) ? edges : []) {
-    if (!outgoing.has(edge.from.key)) outgoing.set(edge.from.key, []);
+    if (!outgoing.has(edge.from.key)) {
+      outgoing.set(edge.from.key, []);
+    }
+
     outgoing.get(edge.from.key).push(edge);
   }
 
-  const cycles = [];
   const seen = new Set();
 
   for (const first of outgoing.get(startCurrency.key) ?? []) {
     if (first.to.key === startCurrency.key) continue;
-    if (!allowedIntermediateCategories.has(first.to.category)) continue;
+
+    if (
+      !allowedIntermediateCategories.has(first.to.category)
+    ) {
+      continue;
+    }
 
     for (const second of outgoing.get(first.to.key) ?? []) {
       if (
@@ -752,13 +926,15 @@ export function findTriangularCycles(edges, options = {}) {
         continue;
       }
 
-      if (!allowedIntermediateCategories.has(second.to.category)) {
+      if (
+        !allowedIntermediateCategories.has(second.to.category)
+      ) {
         continue;
       }
 
-      const thirdCandidates = (outgoing.get(second.to.key) ?? []).filter(
-        (edge) => edge.to.key === startCurrency.key,
-      );
+      const thirdCandidates = (
+        outgoing.get(second.to.key) ?? []
+      ).filter((edge) => edge.to.key === startCurrency.key);
 
       for (const third of thirdCandidates) {
         const routeKey = [
@@ -771,27 +947,31 @@ export function findTriangularCycles(edges, options = {}) {
         if (seen.has(routeKey)) continue;
         seen.add(routeKey);
 
+        diagnostics.potentialRoutes += 1;
+
         const routeEdges = [first, second, third];
         const routeMaxSpread = Math.max(
           ...routeEdges.map((edge) => edge.spreadPercent),
         );
 
-        if (routeMaxSpread > maxSpread) continue;
+        if (routeMaxSpread > maxSpread) {
+          reject("spread");
+          continue;
+        }
 
         const grossAmounts = [budget];
         const safeAmounts = [budget];
-        const grossExecutions = [];
         const safeExecutions = [];
-        let executable = true;
-
         const observedCapacities = [];
+
+        let failedReason = null;
 
         for (const edge of routeEdges) {
           const quote = selectedQuote(edge, mode);
           const capacity = observedLotCapacity(edge, quote);
 
           if (capacity < HARD_MIN_OBSERVED_LOTS) {
-            executable = false;
+            failedReason = "lowObservedLots";
             break;
           }
 
@@ -800,6 +980,7 @@ export function findTriangularCycles(edges, options = {}) {
             quote,
             1,
           );
+
           const safeExecution = executeWholeLotTrade(
             safeAmounts.at(-1),
             quote,
@@ -807,121 +988,134 @@ export function findTriangularCycles(edges, options = {}) {
           );
 
           if (!grossExecution || !safeExecution) {
-            executable = false;
+            failedReason = "wholeLot";
             break;
           }
 
           observedCapacities.push(capacity);
-          grossExecutions.push(grossExecution);
           safeExecutions.push(safeExecution);
           grossAmounts.push(grossExecution.outputAmount);
           safeAmounts.push(safeExecution.outputAmount);
         }
 
-        if (!executable) continue;
-
-        const utilizationDetails = routeEdges.map((edge, index) => {
-          const execution = safeExecutions[index];
-
-          const inputPercent =
-            edge.volumeIn > 0
-              ? (execution.spentInput / edge.volumeIn) * 100
-              : Number.POSITIVE_INFINITY;
-
-          const outputPercent =
-            edge.volumeOut > 0
-              ? (execution.outputAmount / edge.volumeOut) * 100
-              : Number.POSITIVE_INFINITY;
-
-          return {
-            inputPercent,
-            outputPercent,
-            maximumPercent: Math.max(inputPercent, outputPercent),
-          };
-        });
-
-        const maxUtilization = Math.max(
-          ...utilizationDetails.map((detail) => detail.maximumPercent),
-        );
-
-        if (maxUtilization > maxVolumeUtilization) {
+        if (failedReason) {
+          reject(failedReason);
           continue;
         }
 
-        const grossResult = grossAmounts.at(-1);
-        const safeResult = safeAmounts.at(-1);
-        const grossProfit = grossResult - budget;
-        const safeProfit = safeResult - budget;
-        const roi = (safeProfit / budget) * 100;
-
-        if (safeProfit < minProfit || roi < minRoi) continue;
-
-        cycles.push({
-          key: routeKey,
-          startCurrency,
-          intermediateCategories: [
-            first.to.category,
-            second.to.category,
-          ],
-          currencies: [
-            startCurrency,
-            first.to,
-            second.to,
-            startCurrency,
-          ],
-          edges: routeEdges.map((edge, index) => {
-            const quote = selectedQuote(edge, mode);
+        const utilizationDetails = routeEdges.map(
+          (edge, index) => {
             const execution = safeExecutions[index];
 
+            const inputPercent =
+              edge.volumeIn > 0
+                ? (execution.spentInput / edge.volumeIn) * 100
+                : Number.POSITIVE_INFINITY;
+
+            const outputPercent =
+              edge.volumeOut > 0
+                ? (execution.outputAmount / edge.volumeOut) * 100
+                : Number.POSITIVE_INFINITY;
+
             return {
-              ...edge,
-              chosenRate: quote.rate,
-              safeRate: quote.rate * safetyFactor,
-              fromLot: quote.fromLot,
-              toLot: quote.toLot,
-              availableInput: execution.availableInput,
-              requiredInput: execution.spentInput,
-              protectedInput: execution.protectedInput,
-              tradeLots: execution.lots,
-              leftoverInput: execution.leftoverInput,
-              resultingAmount: execution.outputAmount,
-              observedLotCapacity: observedCapacities[index],
-              inputUtilizationPercent:
-                utilizationDetails[index].inputPercent,
-              outputUtilizationPercent:
-                utilizationDetails[index].outputPercent,
-              utilizationPercent:
-                utilizationDetails[index].maximumPercent,
+              inputPercent,
+              outputPercent,
+              maximumPercent: Math.max(
+                inputPercent,
+                outputPercent,
+              ),
             };
-          }),
+          },
+        );
+
+        const maxUtilization = Math.max(
+          ...utilizationDetails.map(
+            (detail) => detail.maximumPercent,
+          ),
+        );
+
+        if (maxUtilization > maxVolumeUtilization) {
+          reject("liquidity");
+          continue;
+        }
+
+        diagnostics.technicallyExecutable += 1;
+
+        const cycle = createCycleRecord({
+          routeKey,
+          startCurrency,
+          first,
+          second,
+          routeEdges,
+          observedCapacities,
+          safeExecutions,
+          utilizationDetails,
           budget,
-          grossResult,
-          safeResult,
-          grossProfit,
-          safeProfit,
-          roi,
-          maxSpread: routeMaxSpread,
+          grossAmounts,
+          safeAmounts,
+          routeMaxSpread,
           maxUtilization,
-          risk: cycleRisk(routeMaxSpread, maxUtilization),
           mode,
           safetyPercent,
-          effectiveMaxSpread: maxSpread,
-          effectiveMaxVolumeUtilization: maxVolumeUtilization,
-          hardLimits: {
-            maxSpreadPercent: HARD_MAX_SPREAD_PERCENT,
-            maxVolumeUtilizationPercent:
-              HARD_MAX_VOLUME_UTILIZATION_PERCENT,
-            minObservedLots: HARD_MIN_OBSERVED_LOTS,
-          },
+          maxSpread,
+          maxVolumeUtilization,
         });
+
+        if (cycle.safeProfit <= 0) {
+          reject("noProfit");
+          nearestCandidates.push({
+            ...cycle,
+            rejectionReason: "noProfit",
+            gapToBreakEven: Math.max(
+              0,
+              budget - cycle.safeResult,
+            ),
+            gapToMinProfit: Math.max(
+              0,
+              minProfit - cycle.safeProfit,
+            ),
+            gapToMinRoi: Math.max(0, minRoi - cycle.roi),
+          });
+          continue;
+        }
+
+        if (cycle.safeProfit < minProfit) {
+          reject("minProfit");
+          nearestCandidates.push({
+            ...cycle,
+            rejectionReason: "minProfit",
+            gapToBreakEven: 0,
+            gapToMinProfit: minProfit - cycle.safeProfit,
+            gapToMinRoi: Math.max(0, minRoi - cycle.roi),
+          });
+          continue;
+        }
+
+        if (cycle.roi < minRoi) {
+          reject("minRoi");
+          nearestCandidates.push({
+            ...cycle,
+            rejectionReason: "minRoi",
+            gapToBreakEven: 0,
+            gapToMinProfit: 0,
+            gapToMinRoi: minRoi - cycle.roi,
+          });
+          continue;
+        }
+
+        diagnostics.accepted += 1;
+        cycles.push(cycle);
       }
     }
   }
 
-  return cycles.sort(
-    (left, right) =>
-      right.safeProfit - left.safeProfit ||
-      right.roi - left.roi ||
-      left.maxUtilization - right.maxUtilization,
-  );
+  return {
+    cycles: sortedCycles(cycles),
+    nearest: sortedNearest(nearestCandidates),
+    diagnostics,
+  };
+}
+
+export function findTriangularCycles(edges, options = {}) {
+  return analyzeTriangularCycles(edges, options).cycles;
 }
