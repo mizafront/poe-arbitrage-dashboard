@@ -272,30 +272,155 @@ function normalizedMarketCode(value) {
     .replace(/^-|-$/g, "");
 }
 
+const GGG_METADATA_ALIASES = new Map(
+  Object.entries({
+    "metadata/items/currency/currencyrerollrare": "chaos-orb",
+    "metadata/items/currency/currencymodvalues": "divine-orb",
+    "metadata/items/currency/currencyaddmodtorare": "exalted-orb",
+    "metadata/items/currency/currencyremovemod": "orb-of-annulment",
+    "metadata/items/currency/currencyrerollmagic": "orb-of-alteration",
+    "metadata/items/currency/currencyrerollsocketlinks": "orb-of-fusing",
+    "metadata/items/currency/currencyrerollsocketnumbers": "jewellers-orb",
+    "metadata/items/currency/currencyrerollsocketcolours": "chromatic-orb",
+    "metadata/items/currency/currencyconverttonormal": "orb-of-scouring",
+    "metadata/items/currency/currencypassiverefund": "orb-of-regret",
+    "metadata/items/currency/currencyupgradetorare": "orb-of-alchemy",
+    "metadata/items/currency/currencyupgraderandomly": "orb-of-chance",
+    "metadata/items/currency/currencyupgrademagictorare": "regal-orb",
+    "metadata/items/currency/currencyvaal": "vaal-orb",
+    "metadata/items/currency/currencyduplicate": "mirror-of-kalandra",
+    "metadata/items/currency/currencymirrorshard": "mirror-shard",
+    "metadata/items/currency/currencyidentification": "scroll-of-wisdom",
+    "metadata/items/currency/currencyportal": "portal-scroll",
+    "metadata/items/currency/currencyarmourquality": "armourers-scrap",
+    "metadata/items/currency/currencyweaponquality": "blacksmiths-whetstone",
+    "metadata/items/currency/currencymapquality": "cartographers-chisel",
+    "metadata/items/currency/currencygemquality": "gemcutters-prism",
+    "metadata/items/currency/currencyatlaspassiverefund": "orb-of-unmaking",
+    "metadata/items/currency/currencyfracturingorb": "fracturing-orb",
+    "metadata/items/currency/eldritchcurrency/eldritchchaosorb": "eldritch-chaos-orb",
+    "metadata/items/currency/eldritchcurrency/eldritchexaltedorb": "eldritch-exalted-orb",
+    "metadata/items/currency/eldritchcurrency/eldritchannulmentorb": "eldritch-orb-of-annulment",
+    "metadata/items/divinationcards/divinationcarddeck": "stacked-deck",
+    "metadata/items/atlasexiles/addmodtorarecrusader": "crusaders-exalted-orb",
+    "metadata/items/atlasexiles/addmodtorareredeemer": "redeemers-exalted-orb",
+    "metadata/items/atlasexiles/addmodtorarehunter": "hunters-exalted-orb",
+    "metadata/items/atlasexiles/addmodtorarewarlord": "warlords-exalted-orb",
+    "metadata/items/currency/currencyupgradetorareandsetsockets": "orb-of-binding"
+  })
+);
+
+const ESSENCE_FAMILY_NAMES = Object.freeze({
+  greed: "Greed",
+  contempt: "Contempt",
+  hatred: "Hatred",
+  woe: "Woe",
+  fear: "Fear",
+  anger: "Anger",
+  torment: "Torment",
+  sorrow: "Sorrow",
+  rage: "Rage",
+  suffering: "Suffering",
+  wrath: "Wrath",
+  doubt: "Doubt",
+  loathing: "Loathing",
+  zeal: "Zeal",
+  anguish: "Anguish",
+  spite: "Spite",
+  scorn: "Scorn",
+  envy: "Envy",
+  misery: "Misery"
+});
+
+function gggOilCode(metadataId) {
+  const match = String(metadataId ?? "")
+    .trim()
+    .match(/^Metadata\/Items\/Currency\/Mushrune(\d+)$/i);
+  if (!match) return "";
+  const index = Number(match[1]) - 1;
+  return index >= 0 && index < OIL_CHAIN.length
+    ? normalizedMarketCode(OIL_CHAIN[index])
+    : "";
+}
+
+function gggEssenceCode(metadataId) {
+  const match = String(metadataId ?? "")
+    .trim()
+    .match(/^Metadata\/Items\/Currency\/CurrencyEssence([A-Za-z]+)([1-7])$/i);
+  if (!match) return "";
+
+  const family = ESSENCE_FAMILY_NAMES[match[1].toLowerCase()];
+  const tier = ESSENCE_TIERS[Number(match[2]) - 1];
+  return family && tier
+    ? normalizedMarketCode(`${tier} Essence of ${family}`)
+    : "";
+}
+
+function canonicalGggMarketCode(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  const exact = GGG_METADATA_ALIASES.get(raw.toLowerCase());
+  if (exact) return exact;
+
+  return gggOilCode(raw) || gggEssenceCode(raw) || normalizedMarketCode(raw);
+}
+
+function rawMarketPair(market) {
+  if (Array.isArray(market?.market_pair)) return market.market_pair;
+  return String(market?.market_id ?? "").split("|");
+}
+
 function numericDictionary(value) {
   const result = {};
   if (!value || typeof value !== "object") return result;
+
   for (const [key, raw] of Object.entries(value)) {
     const parsed = Number(raw);
-    if (Number.isFinite(parsed)) result[normalizedMarketCode(key)] = parsed;
+    const code = canonicalGggMarketCode(key);
+    if (code && Number.isFinite(parsed)) result[code] = parsed;
   }
+
   return result;
 }
 
+function hasPositiveDictionaryValue(dictionary) {
+  return Object.values(dictionary ?? {}).some(
+    (value) => Number.isFinite(Number(value)) && Number(value) > 0
+  );
+}
+
+function hasUsableRatio(market) {
+  return [market.lowestRatio, market.highestRatio].some((ratio) =>
+    market.codes.every((code) => Number(ratio?.[code]) > 0)
+  );
+}
+
+function isRecognizedGggCode(code) {
+  return Boolean(
+    code &&
+      !code.startsWith("metadata-items-") &&
+      !code.startsWith("metadata-items:")
+  );
+}
+
 export function normalizeCurrencyExchange(payload) {
-  const markets = Array.isArray(payload?.markets) ? payload.markets : [];
-  return {
-    configured: Boolean(payload?.configured),
-    available: Boolean(payload?.available) && markets.length > 0,
-    league: String(payload?.league ?? ""),
-    hour: Number.isFinite(Number(payload?.hour)) ? Number(payload.hour) : Number.NaN,
-    nextChangeId: Number.isFinite(Number(payload?.next_change_id)) ? Number(payload.next_change_id) : Number.NaN,
-    error: String(payload?.error ?? payload?.reason ?? ""),
-    markets: markets.map((market) => {
-      const codes = String(market?.market_id ?? "").split("|").map(normalizedMarketCode).filter(Boolean);
-      return {
+  const rawMarkets = Array.isArray(payload?.markets) ? payload.markets : [];
+  const unknownCodes = new Set();
+  let zeroVolumeCount = 0;
+  let invalidRatioCount = 0;
+  let malformedCount = 0;
+
+  const markets = rawMarkets
+    .map((market) => {
+      const rawCodes = rawMarketPair(market).map((value) =>
+        String(value ?? "").trim()
+      );
+      const codes = rawCodes.map(canonicalGggMarketCode).filter(Boolean);
+      const normalized = {
         league: String(market?.league ?? ""),
         marketId: String(market?.market_id ?? ""),
+        rawCodes,
         codes,
         volumeTraded: numericDictionary(market?.volume_traded),
         lowestStock: numericDictionary(market?.lowest_stock),
@@ -303,16 +428,74 @@ export function normalizeCurrencyExchange(payload) {
         lowestRatio: numericDictionary(market?.lowest_ratio),
         highestRatio: numericDictionary(market?.highest_ratio)
       };
-    }).filter((market) => market.codes.length === 2)
+
+      for (let index = 0; index < codes.length; index += 1) {
+        if (!isRecognizedGggCode(codes[index])) {
+          unknownCodes.add(rawCodes[index] || codes[index]);
+        }
+      }
+
+      return normalized;
+    })
+    .filter((market) => {
+      if (
+        market.codes.length !== 2 ||
+        market.codes[0] === market.codes[1]
+      ) {
+        malformedCount += 1;
+        return false;
+      }
+
+      if (!hasPositiveDictionaryValue(market.volumeTraded)) {
+        zeroVolumeCount += 1;
+        return false;
+      }
+
+      if (!hasUsableRatio(market)) {
+        invalidRatioCount += 1;
+        return false;
+      }
+
+      return true;
+    });
+
+  return {
+    configured: Boolean(payload?.configured),
+    available: Boolean(payload?.available) && markets.length > 0,
+    league: String(payload?.league ?? ""),
+    hour: Number.isFinite(Number(payload?.hour))
+      ? Number(payload.hour)
+      : Number.NaN,
+    nextChangeId: Number.isFinite(Number(payload?.next_change_id))
+      ? Number(payload.next_change_id)
+      : Number.NaN,
+    error: String(payload?.error ?? payload?.reason ?? ""),
+    markets,
+    diagnostics: {
+      received: rawMarkets.length,
+      usable: markets.length,
+      filtered: rawMarkets.length - markets.length,
+      zeroVolume: zeroVolumeCount,
+      invalidRatio: invalidRatioCount,
+      malformed: malformedCount,
+      unknownCodes: [...unknownCodes].sort()
+    }
   };
 }
 
 function ratioChaosPrice(ratio, itemCode, chaosCode) {
   const itemAmount = Number(ratio?.[itemCode]);
   const chaosAmount = Number(ratio?.[chaosCode]);
-  if (!Number.isFinite(itemAmount) || !Number.isFinite(chaosAmount) || itemAmount <= 0 || chaosAmount <= 0) {
+
+  if (
+    !Number.isFinite(itemAmount) ||
+    !Number.isFinite(chaosAmount) ||
+    itemAmount <= 0 ||
+    chaosAmount <= 0
+  ) {
     return Number.NaN;
   }
+
   return chaosAmount / itemAmount;
 }
 
@@ -326,7 +509,13 @@ function marketCodeCandidates(item) {
     nameSlug,
     nameSlug.replace(/-orb$/, ""),
     nameSlug.replace(/^the-/, "")
-  ].map(normalizedMarketCode).filter(Boolean);
+  ]
+    .flatMap((value) => [
+      normalizedMarketCode(value),
+      canonicalGggMarketCode(value)
+    ])
+    .filter(Boolean);
+
   const aliases = {
     "chaos-orb": ["chaos"],
     "divine-orb": ["divine"],
@@ -342,26 +531,65 @@ function marketCodeCandidates(item) {
     "mirror-shard": ["mirror-shard"],
     "stacked-deck": ["stacked-deck"]
   };
+
   for (const alias of aliases[nameSlug] ?? []) candidates.push(alias);
   return [...new Set(candidates)];
 }
 
 function exchangeMarketForItem(item, exchange, chaosCodes) {
-  const itemCodes = marketCodeCandidates(item);
+  const itemCodes = new Set(marketCodeCandidates(item));
   let best = null;
+
   for (const market of exchange?.markets ?? []) {
     const chaosCode = market.codes.find((code) => chaosCodes.has(code));
     if (!chaosCode) continue;
-    const itemCode = market.codes.find((code) => itemCodes.includes(code));
-    if (!itemCode || itemCode === chaosCode) continue;
-    const volume = Number(market.volumeTraded?.[itemCode] ?? 0);
-    if (!best || volume > best.volume) best = { market, itemCode, chaosCode, volume };
+
+    const itemCode = market.codes.find(
+      (code) => code !== chaosCode && itemCodes.has(code)
+    );
+    if (!itemCode) continue;
+
+    const itemVolume = Number(market.volumeTraded?.[itemCode] ?? 0);
+    const chaosVolume = Number(market.volumeTraded?.[chaosCode] ?? 0);
+    const low = ratioChaosPrice(
+      market.lowestRatio,
+      itemCode,
+      chaosCode
+    );
+    const high = ratioChaosPrice(
+      market.highestRatio,
+      itemCode,
+      chaosCode
+    );
+
+    if (
+      itemVolume <= 0 ||
+      chaosVolume <= 0 ||
+      (![low, high].some((value) => Number.isFinite(value) && value > 0))
+    ) {
+      continue;
+    }
+
+    const score = Math.min(itemVolume, chaosVolume);
+    if (!best || score > best.score) {
+      best = {
+        market,
+        itemCode,
+        chaosCode,
+        volume: itemVolume,
+        chaosVolume,
+        score
+      };
+    }
   }
+
   return best;
 }
 
 export function mergeCurrencyExchangeStats(items, exchangePayload) {
-  const exchange = exchangePayload?.markets ? exchangePayload : normalizeCurrencyExchange(exchangePayload);
+  const exchange = exchangePayload?.markets
+    ? exchangePayload
+    : normalizeCurrencyExchange(exchangePayload);
   const chaosCodes = new Set(["chaos", "chaos-orb"]);
 
   return (items ?? []).map((item) => {
@@ -372,11 +600,12 @@ export function mergeCurrencyExchangeStats(items, exchangePayload) {
           available: true,
           synthetic: true,
           marketId: "chaos",
-          code: "chaos",
+          code: "chaos-orb",
           hour: exchange.hour,
           lowPrice: 1,
           highPrice: 1,
           midpoint: 1,
+          spreadPercent: 0,
           volume: Number.POSITIVE_INFINITY,
           chaosVolume: Number.POSITIVE_INFINITY,
           lowestStock: Number.POSITIVE_INFINITY,
@@ -388,13 +617,27 @@ export function mergeCurrencyExchangeStats(items, exchangePayload) {
     const match = exchangeMarketForItem(item, exchange, chaosCodes);
     if (!match) return { ...item, cx: null };
 
-    const lowCandidate = ratioChaosPrice(match.market.lowestRatio, match.itemCode, match.chaosCode);
-    const highCandidate = ratioChaosPrice(match.market.highestRatio, match.itemCode, match.chaosCode);
-    const values = [lowCandidate, highCandidate].filter((value) => Number.isFinite(value) && value > 0);
+    const lowCandidate = ratioChaosPrice(
+      match.market.lowestRatio,
+      match.itemCode,
+      match.chaosCode
+    );
+    const highCandidate = ratioChaosPrice(
+      match.market.highestRatio,
+      match.itemCode,
+      match.chaosCode
+    );
+    const values = [lowCandidate, highCandidate].filter(
+      (value) => Number.isFinite(value) && value > 0
+    );
     if (!values.length) return { ...item, cx: null };
 
     const lowPrice = Math.min(...values);
     const highPrice = Math.max(...values);
+    const midpoint = (lowPrice + highPrice) / 2;
+    const spreadPercent =
+      midpoint > 0 ? ((highPrice - lowPrice) / midpoint) * 100 : Number.NaN;
+
     return {
       ...item,
       cx: {
@@ -403,14 +646,20 @@ export function mergeCurrencyExchangeStats(items, exchangePayload) {
         marketId: match.market.marketId,
         code: match.itemCode,
         chaosCode: match.chaosCode,
+        rawCodes: match.market.rawCodes,
         hour: exchange.hour,
         lowPrice,
         highPrice,
-        midpoint: (lowPrice + highPrice) / 2,
-        volume: Number(match.market.volumeTraded?.[match.itemCode] ?? 0),
-        chaosVolume: Number(match.market.volumeTraded?.[match.chaosCode] ?? 0),
-        lowestStock: Number(match.market.lowestStock?.[match.itemCode] ?? 0),
-        highestStock: Number(match.market.highestStock?.[match.itemCode] ?? 0)
+        midpoint,
+        spreadPercent,
+        volume: match.volume,
+        chaosVolume: match.chaosVolume,
+        lowestStock: Number(
+          match.market.lowestStock?.[match.itemCode] ?? 0
+        ),
+        highestStock: Number(
+          match.market.highestStock?.[match.itemCode] ?? 0
+        )
       }
     };
   });
