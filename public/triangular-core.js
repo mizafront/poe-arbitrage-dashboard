@@ -202,6 +202,43 @@ function marketCurrencies(market) {
   return resolved;
 }
 
+function greatestCommonDivisor(left, right) {
+  let a = Math.abs(Math.trunc(left));
+  let b = Math.abs(Math.trunc(right));
+
+  while (b) {
+    [a, b] = [b, a % b];
+  }
+
+  return a || 1;
+}
+
+function normalizedTradeLot(fromValue, toValue) {
+  const rawFrom = Number(fromValue);
+  const rawTo = Number(toValue);
+
+  if (!(rawFrom > 0) || !(rawTo > 0)) return null;
+
+  const fromIsInteger = Number.isInteger(rawFrom);
+  const toIsInteger = Number.isInteger(rawTo);
+
+  if (fromIsInteger && toIsInteger) {
+    const divisor = greatestCommonDivisor(rawFrom, rawTo);
+
+    return {
+      fromLot: rawFrom / divisor,
+      toLot: rawTo / divisor,
+      rate: rawTo / rawFrom,
+    };
+  }
+
+  return {
+    fromLot: rawFrom,
+    toLot: rawTo,
+    rate: rawTo / rawFrom,
+  };
+}
+
 function directedEdge({
   from,
   to,
@@ -213,28 +250,55 @@ function directedEdge({
   const candidates = [];
 
   for (const ratioMap of [lowRatios, highRatios]) {
-    const fromRatio = Number(ratioMap.get(from.key));
-    const toRatio = Number(ratioMap.get(to.key));
+    const quote = normalizedTradeLot(
+      ratioMap.get(from.key),
+      ratioMap.get(to.key),
+    );
 
-    if (fromRatio > 0 && toRatio > 0) {
-      candidates.push(toRatio / fromRatio);
+    if (!quote) continue;
+
+    if (
+      !candidates.some(
+        (candidate) =>
+          Math.abs(candidate.fromLot - quote.fromLot) < 1e-9 &&
+          Math.abs(candidate.toLot - quote.toLot) < 1e-9,
+      )
+    ) {
+      candidates.push(quote);
     }
   }
 
   if (!candidates.length) return null;
 
-  const lowRate = Math.min(...candidates);
-  const highRate = Math.max(...candidates);
+  candidates.sort((left, right) => left.rate - right.rate);
+
+  const lowQuote = candidates[0];
+  const highQuote = candidates.at(-1);
+  const midpointRate = Math.sqrt(lowQuote.rate * highQuote.rate);
+  const midpointQuote = candidates.reduce((best, candidate) => {
+    const bestDistance = Math.abs(Math.log(best.rate / midpointRate));
+    const candidateDistance = Math.abs(
+      Math.log(candidate.rate / midpointRate),
+    );
+
+    return candidateDistance < bestDistance ? candidate : best;
+  }, lowQuote);
+
   const volumeIn = Number(volume.get(from.key) ?? 0);
   const volumeOut = Number(volume.get(to.key) ?? 0);
 
-  if (!(lowRate > 0) || !(highRate > 0) || !(volumeIn > 0) || !(volumeOut > 0)) {
+  if (
+    !(lowQuote.rate > 0) ||
+    !(highQuote.rate > 0) ||
+    !(volumeIn > 0) ||
+    !(volumeOut > 0)
+  ) {
     return null;
   }
 
-  const middle = (lowRate + highRate) / 2;
+  const middle = (lowQuote.rate + highQuote.rate) / 2;
   const spreadPercent = middle > 0
-    ? ((highRate - lowRate) / middle) * 100
+    ? ((highQuote.rate - lowQuote.rate) / middle) * 100
     : Number.POSITIVE_INFINITY;
 
   return {
@@ -242,9 +306,12 @@ function directedEdge({
     marketId,
     from,
     to,
-    lowRate,
-    highRate,
-    midpointRate: Math.sqrt(lowRate * highRate),
+    lowRate: lowQuote.rate,
+    highRate: highQuote.rate,
+    midpointRate,
+    lowQuote,
+    highQuote,
+    midpointQuote,
     spreadPercent,
     volumeIn,
     volumeOut,
@@ -311,8 +378,41 @@ function finiteNonNegative(value, fallback = 0) {
   return Number.isFinite(number) && number >= 0 ? number : fallback;
 }
 
-function selectedRate(edge, mode) {
-  return mode === "midpoint" ? edge.midpointRate : edge.lowRate;
+function selectedQuote(edge, mode) {
+  return mode === "midpoint" ? edge.midpointQuote : edge.lowQuote;
+}
+
+function executeWholeLotTrade(inputAmount, quote, safetyFactor = 1) {
+  const availableInput = Math.floor(Number(inputAmount));
+
+  if (
+    !(availableInput > 0) ||
+    !quote ||
+    !(quote.fromLot > 0) ||
+    !(quote.toLot > 0)
+  ) {
+    return null;
+  }
+
+  const protectedInput = Math.floor(availableInput * safetyFactor);
+  const lots = Math.floor((protectedInput + 1e-9) / quote.fromLot);
+
+  if (lots < 1) return null;
+
+  const spentInput = lots * quote.fromLot;
+  const rawOutput = lots * quote.toLot;
+  const outputAmount = Math.floor(rawOutput + 1e-9);
+
+  if (outputAmount < 1) return null;
+
+  return {
+    availableInput,
+    protectedInput,
+    lots,
+    spentInput,
+    outputAmount,
+    leftoverInput: Math.max(0, availableInput - spentInput),
+  };
 }
 
 function cycleRisk(maxSpread, maxUtilization) {
@@ -325,7 +425,7 @@ export function findTriangularCycles(edges, options = {}) {
   const startCurrency = resolveCurrency(options.startCurrency ?? "chaos-orb");
   if (!startCurrency) return [];
 
-  const budget = finiteNonNegative(options.budget, 0);
+  const budget = Math.floor(finiteNonNegative(options.budget, 0));
   if (!(budget > 0)) return [];
 
   const safetyPercent = Math.min(
@@ -386,24 +486,42 @@ export function findTriangularCycles(edges, options = {}) {
 
         if (maxSpread > 0 && routeMaxSpread > maxSpread) continue;
 
-        const requiredInputs = [];
         const grossAmounts = [budget];
         const safeAmounts = [budget];
+        const grossExecutions = [];
+        const safeExecutions = [];
+        let executable = true;
 
         for (const edge of routeEdges) {
-          const rate = selectedRate(edge, mode);
-          const grossInput = grossAmounts.at(-1);
-          const safeInput = safeAmounts.at(-1);
+          const quote = selectedQuote(edge, mode);
+          const grossExecution = executeWholeLotTrade(
+            grossAmounts.at(-1),
+            quote,
+            1,
+          );
+          const safeExecution = executeWholeLotTrade(
+            safeAmounts.at(-1),
+            quote,
+            safetyFactor,
+          );
 
-          requiredInputs.push(safeInput);
-          grossAmounts.push(grossInput * rate);
-          safeAmounts.push(safeInput * rate * safetyFactor);
+          if (!grossExecution || !safeExecution) {
+            executable = false;
+            break;
+          }
+
+          grossExecutions.push(grossExecution);
+          safeExecutions.push(safeExecution);
+          grossAmounts.push(grossExecution.outputAmount);
+          safeAmounts.push(safeExecution.outputAmount);
         }
 
+        if (!executable) continue;
+
         const utilizations = routeEdges.map((edge, index) => {
-          const required = requiredInputs[index];
+          const spentInput = safeExecutions[index].spentInput;
           return edge.volumeIn > 0
-            ? (required / edge.volumeIn) * 100
+            ? (spentInput / edge.volumeIn) * 100
             : Number.POSITIVE_INFINITY;
         });
 
@@ -433,14 +551,25 @@ export function findTriangularCycles(edges, options = {}) {
             second.to,
             startCurrency,
           ],
-          edges: routeEdges.map((edge, index) => ({
-            ...edge,
-            chosenRate: selectedRate(edge, mode),
-            safeRate: selectedRate(edge, mode) * safetyFactor,
-            requiredInput: requiredInputs[index],
-            resultingAmount: safeAmounts[index + 1],
-            utilizationPercent: utilizations[index],
-          })),
+          edges: routeEdges.map((edge, index) => {
+            const quote = selectedQuote(edge, mode);
+            const execution = safeExecutions[index];
+
+            return {
+              ...edge,
+              chosenRate: quote.rate,
+              safeRate: quote.rate * safetyFactor,
+              fromLot: quote.fromLot,
+              toLot: quote.toLot,
+              availableInput: execution.availableInput,
+              requiredInput: execution.spentInput,
+              protectedInput: execution.protectedInput,
+              tradeLots: execution.lots,
+              leftoverInput: execution.leftoverInput,
+              resultingAmount: execution.outputAmount,
+              utilizationPercent: utilizations[index],
+            };
+          }),
           budget,
           grossResult,
           safeResult,

@@ -119,8 +119,10 @@ function panelMarkup() {
       </div>
 
       <div class="triangle-note">
-        Стоимость золота Currency Exchange не учтена. Объём GGG — исторический
-        объём завершённого часа, а не текущий стак заявок.
+        Каждый шаг выполняется только целыми торговыми лотами: дробные Divine,
+        Chaos и другие предметы не допускаются. Неиспользованный остаток
+        промежуточной валюты показывается отдельно и не считается прибылью.
+        Объём GGG относится к завершённому часу, а не к текущему стакану заявок.
       </div>
 
       <div class="triangle-metrics">
@@ -290,9 +292,17 @@ function renderCycle(cycle, index) {
             <span>×${formatNumber(edge.safeRate, 6)}</span>
           </div>
           <small>
-            ${formatNumber(edge.requiredInput)} ${escapeHtml(edge.from.short)}
-            → ${formatNumber(edge.resultingAmount)} ${escapeHtml(edge.to.short)};
-            объём часа ${formatNumber(edge.volumeIn)};
+            Доступно ${formatNumber(edge.availableInput, 0)}
+            ${escapeHtml(edge.from.short)}; обменено
+            ${formatNumber(edge.requiredInput, 0)}
+            ${escapeHtml(edge.from.short)}
+            (${formatNumber(edge.tradeLots, 0)} лот.);
+            получено ${formatNumber(edge.resultingAmount, 0)}
+            ${escapeHtml(edge.to.short)};
+            остаток ${formatNumber(edge.leftoverInput, 0)}
+            ${escapeHtml(edge.from.short)};
+            лот ${formatNumber(edge.fromLot, 0)}:${formatNumber(edge.toLot, 0)};
+            объём часа ${formatNumber(edge.volumeIn, 0)};
             используется ${formatPercent(edge.utilizationPercent)};
             разброс ${formatPercent(edge.spreadPercent)}
           </small>
@@ -316,16 +326,16 @@ function renderCycle(cycle, index) {
       <div class="triangle-card-metrics">
         <div>
           <span>Старт</span>
-          <strong>${formatNumber(cycle.budget)} ${escapeHtml(cycle.startCurrency.short)}</strong>
+          <strong>${formatNumber(cycle.budget, 0)} ${escapeHtml(cycle.startCurrency.short)}</strong>
         </div>
         <div>
           <span>Результат с запасом</span>
-          <strong>${formatNumber(cycle.safeResult)} ${escapeHtml(cycle.startCurrency.short)}</strong>
+          <strong>${formatNumber(cycle.safeResult, 0)} ${escapeHtml(cycle.startCurrency.short)}</strong>
         </div>
         <div>
           <span>Безопасная прибыль</span>
           <strong class="${cycle.safeProfit > 0 ? "triangle-positive" : "triangle-negative"}">
-            ${cycle.safeProfit > 0 ? "+" : ""}${formatNumber(cycle.safeProfit)}
+            ${cycle.safeProfit > 0 ? "+" : ""}${formatNumber(cycle.safeProfit, 0)}
             ${escapeHtml(cycle.startCurrency.short)}
           </strong>
         </div>
