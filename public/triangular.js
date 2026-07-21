@@ -96,9 +96,8 @@ function panelMarkup() {
 
         <label>
           Расчёт курса
-          <select id="triangleMode">
-            <option value="conservative">Консервативный</option>
-            <option value="midpoint">Средний диапазон</option>
+          <select id="triangleMode" disabled>
+            <option value="average">Средний фактический курс часа</option>
           </select>
         </label>
 
@@ -110,7 +109,7 @@ function panelMarkup() {
         <label>
           Макс. разброс курса, %
           <input id="triangleMaxSpread" type="number" min="0" step="1" value="25">
-          <small>0 — использовать обязательный предел 50%</small>
+          <small>0 — не фильтровать; диапазон используется как предупреждение</small>
         </label>
 
         <label>
@@ -126,11 +125,11 @@ function panelMarkup() {
       </fieldset>
 
       <div class="triangle-note">
-        Поиск теперь включает обычную валюту, все основные эссенции и
-        первый проверенный набор скарабеев. Каждый шаг выполняется только целыми
-        торговыми лотами. Маршрут автоматически отклоняется при недостаточном
-        часовом объёме, чрезмерном разбросе или единичном рынке. Неизвестные
-        Metadata ID скарабеев намеренно пропускаются.
+        Рабочий курс рассчитывается по отношению суммарных объёмов,
+        реально обменянных за завершённый час. Минимальный и максимальный ratios
+        больше не используются как цена сделки: они показывают только ширину
+        исторического диапазона. На каждом шаге результат округляется вниз до
+        целого предмета, а маршрут ограничивается часовым объёмом.
       </div>
 
       <div class="triangle-metrics">
@@ -281,7 +280,7 @@ function readSettings() {
     budget: Math.max(0.01, numberValue(ui.budget, 100)),
     minProfit: Math.max(0, numberValue(ui.minProfit, 1)),
     minRoi: Math.max(0, numberValue(ui.minRoi, 0.5)),
-    mode: ui.mode?.value === "midpoint" ? "midpoint" : "conservative",
+    mode: "average",
     safetyPercent: Math.max(0, numberValue(ui.safety, 1)),
     maxSpread: Math.max(0, numberValue(ui.maxSpread, 25)),
     maxVolumeUtilization: Math.max(
@@ -394,19 +393,17 @@ function renderCycle(cycle, index) {
             Доступно ${formatNumber(edge.availableInput, 0)}
             ${escapeHtml(edge.from.short)}; обменено
             ${formatNumber(edge.requiredInput, 0)}
-            ${escapeHtml(edge.from.short)}
-            (${formatNumber(edge.tradeLots, 0)} лот.);
+            ${escapeHtml(edge.from.short)};
             получено ${formatNumber(edge.resultingAmount, 0)}
             ${escapeHtml(edge.to.short)};
             остаток ${formatNumber(edge.leftoverInput, 0)}
             ${escapeHtml(edge.from.short)};
-            лот ${formatNumber(edge.fromLot, 0)}:${formatNumber(edge.toLot, 0)};
+            средний курс часа ×${formatNumber(edge.chosenRate, 6)};
             объём входа/выхода
             ${formatNumber(edge.volumeIn, 0)}/${formatNumber(edge.volumeOut, 0)};
-            доступно около ${formatNumber(edge.observedLotCapacity, 0)} лот.;
             используется ${formatPercent(edge.inputUtilizationPercent)}
             входа и ${formatPercent(edge.outputUtilizationPercent)} выхода;
-            разброс ${formatPercent(edge.spreadPercent)}
+            исторический диапазон ${formatPercent(edge.spreadPercent)}
           </small>
         </li>
       `,
@@ -471,8 +468,7 @@ function renderCycle(cycle, index) {
 }
 
 const REJECTION_LABELS = {
-  spread: "Слишком большой разброс курса",
-  lowObservedLots: "Меньше трёх наблюдавшихся лотов",
+  spread: "Превышен выбранный предел исторического диапазона",
   wholeLot: "Нельзя выполнить следующий целый лот",
   liquidity: "Превышена допустимая доля часового объёма",
   noProfit: "Результат не превышает стартовый бюджет",
@@ -666,9 +662,10 @@ function render() {
         <strong>Цепочек пока нет</strong>
         <p>
           Посмотрите блок «Диагностика поиска»: он покажет, сколько
-          маршрутов не прошло проверку целых лотов, ликвидности, разброса
-          и прибыльности. Режим «Средний диапазон» менее консервативен
-          и требует особенно тщательной ручной проверки.
+          маршрутов не прошло проверку целых предметов, ликвидности,
+          пользовательского предела диапазона и прибыльности. Расчёт основан
+          на среднем фактическом курсе завершённого часа и всё равно требует
+          ручной проверки перед обменом.
         </p>
       </div>
     `;
@@ -678,7 +675,7 @@ function render() {
   const shown = state.cycles.slice(0, 25);
   ui.status.textContent =
     `Показано ${shown.length} из ${state.cycles.length} цепочек. ` +
-    `Расчёт: ${settings.mode === "midpoint" ? "средний диапазон" : "консервативный"}.`;
+    "Расчёт: средний фактический курс завершённого часа.";
 
   ui.results.innerHTML = shown.map(renderCycle).join("");
 }

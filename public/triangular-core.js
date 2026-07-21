@@ -357,9 +357,7 @@ const INTERMEDIATE_CATEGORIES = Object.freeze([
   { key: "scarab", name: "Скарабеи" },
 ]);
 
-const HARD_MAX_SPREAD_PERCENT = 50;
 const HARD_MAX_VOLUME_UTILIZATION_PERCENT = 25;
-const HARD_MIN_OBSERVED_LOTS = 3;
 
 const ASSET_BY_KEY = new Map(ALL_ASSETS.map((asset) => [asset.key, asset]));
 const ASSET_ALIASES = new Map();
@@ -430,41 +428,12 @@ function marketCurrencies(market) {
   return resolved;
 }
 
-function greatestCommonDivisor(left, right) {
-  let a = Math.abs(Math.trunc(left));
-  let b = Math.abs(Math.trunc(right));
+function ratioRate(ratioMap, from, to) {
+  const fromRatio = Number(ratioMap.get(from.key));
+  const toRatio = Number(ratioMap.get(to.key));
 
-  while (b) {
-    [a, b] = [b, a % b];
-  }
-
-  return a || 1;
-}
-
-function normalizedTradeLot(fromValue, toValue) {
-  const rawFrom = Number(fromValue);
-  const rawTo = Number(toValue);
-
-  if (!(rawFrom > 0) || !(rawTo > 0)) return null;
-
-  const fromIsInteger = Number.isInteger(rawFrom);
-  const toIsInteger = Number.isInteger(rawTo);
-
-  if (fromIsInteger && toIsInteger) {
-    const divisor = greatestCommonDivisor(rawFrom, rawTo);
-
-    return {
-      fromLot: rawFrom / divisor,
-      toLot: rawTo / divisor,
-      rate: rawTo / rawFrom,
-    };
-  }
-
-  return {
-    fromLot: rawFrom,
-    toLot: rawTo,
-    rate: rawTo / rawFrom,
-  };
+  if (!(fromRatio > 0) || !(toRatio > 0)) return null;
+  return toRatio / fromRatio;
 }
 
 function directedEdge({
@@ -475,77 +444,51 @@ function directedEdge({
   volume,
   marketId,
 }) {
-  const candidates = [];
-
-  for (const ratioMap of [lowRatios, highRatios]) {
-    const quote = normalizedTradeLot(
-      ratioMap.get(from.key),
-      ratioMap.get(to.key),
-    );
-
-    if (!quote) continue;
-
-    if (
-      !candidates.some(
-        (candidate) =>
-          Math.abs(candidate.fromLot - quote.fromLot) < 1e-9 &&
-          Math.abs(candidate.toLot - quote.toLot) < 1e-9,
-      )
-    ) {
-      candidates.push(quote);
-    }
-  }
-
-  if (!candidates.length) return null;
-
-  candidates.sort((left, right) => left.rate - right.rate);
-
-  const lowQuote = candidates[0];
-  const highQuote = candidates.at(-1);
-  const midpointRate = Math.sqrt(lowQuote.rate * highQuote.rate);
-  const midpointQuote = candidates.reduce((best, candidate) => {
-    const bestDistance = Math.abs(Math.log(best.rate / midpointRate));
-    const candidateDistance = Math.abs(
-      Math.log(candidate.rate / midpointRate),
-    );
-
-    return candidateDistance < bestDistance ? candidate : best;
-  }, lowQuote);
-
   const volumeIn = Number(volume.get(from.key) ?? 0);
   const volumeOut = Number(volume.get(to.key) ?? 0);
 
-  if (
-    !(lowQuote.rate > 0) ||
-    !(highQuote.rate > 0) ||
-    !(volumeIn > 0) ||
-    !(volumeOut > 0)
-  ) {
+  if (!(volumeIn > 0) || !(volumeOut > 0)) return null;
+
+  // Inference from the hourly aggregate:
+  // total output traded / total input traded is the aggregate average
+  // exchange rate for the completed hour.
+  const averageRate = volumeOut / volumeIn;
+
+  if (!(averageRate > 0) || !Number.isFinite(averageRate)) {
     return null;
   }
 
-  const middle = (lowQuote.rate + highQuote.rate) / 2;
-  const spreadPercent = middle > 0
-    ? ((highQuote.rate - lowQuote.rate) / middle) * 100
-    : Number.POSITIVE_INFINITY;
+  const extremeRates = [
+    ratioRate(lowRatios, from, to),
+    ratioRate(highRatios, from, to),
+  ].filter((value) => Number.isFinite(value) && value > 0);
+
+  const lowRate = extremeRates.length
+    ? Math.min(...extremeRates)
+    : averageRate;
+
+  const highRate = extremeRates.length
+    ? Math.max(...extremeRates)
+    : averageRate;
+
+  const rangePercent =
+    averageRate > 0
+      ? ((highRate - lowRate) / averageRate) * 100
+      : Number.POSITIVE_INFINITY;
 
   return {
     id: `${marketId}:${from.key}->${to.key}`,
     marketId,
     from,
     to,
-    lowRate: lowQuote.rate,
-    highRate: highQuote.rate,
-    midpointRate,
-    lowQuote,
-    highQuote,
-    midpointQuote,
-    spreadPercent,
+    averageRate,
+    lowRate,
+    highRate,
+    spreadPercent: Math.max(0, rangePercent),
     volumeIn,
     volumeOut,
   };
 }
-
 export function buildDirectedExchangeEdges(markets) {
   const edges = [];
   const diagnostics = {
@@ -624,66 +567,51 @@ function finiteNonNegative(value, fallback = 0) {
   return Number.isFinite(number) && number >= 0 ? number : fallback;
 }
 
-function selectedQuote(edge, mode) {
-  return mode === "midpoint" ? edge.midpointQuote : edge.lowQuote;
+function selectedRate(edge) {
+  return edge.averageRate;
 }
 
-function executeWholeLotTrade(inputAmount, quote, safetyFactor = 1) {
+function executeWholeItemTrade(
+  inputAmount,
+  rate,
+  safetyFactor = 1,
+) {
   const availableInput = Math.floor(Number(inputAmount));
 
   if (
     !(availableInput > 0) ||
-    !quote ||
-    !(quote.fromLot > 0) ||
-    !(quote.toLot > 0)
+    !(rate > 0) ||
+    !Number.isFinite(rate)
   ) {
     return null;
   }
 
-  const protectedInput = Math.floor(availableInput * safetyFactor);
-  const lots = Math.floor((protectedInput + 1e-9) / quote.fromLot);
+  const protectedInput = Math.floor(
+    availableInput * safetyFactor,
+  );
 
-  if (lots < 1) return null;
+  if (protectedInput < 1) return null;
 
-  const spentInput = lots * quote.fromLot;
-  const rawOutput = lots * quote.toLot;
-  const outputAmount = Math.floor(rawOutput + 1e-9);
+  const outputAmount = Math.floor(
+    protectedInput * rate + 1e-9,
+  );
 
   if (outputAmount < 1) return null;
 
   return {
     availableInput,
     protectedInput,
-    lots,
-    spentInput,
+    spentInput: protectedInput,
     outputAmount,
-    leftoverInput: Math.max(0, availableInput - spentInput),
+    leftoverInput: Math.max(
+      0,
+      availableInput - protectedInput,
+    ),
   };
 }
-
-function observedLotCapacity(edge, quote) {
-  if (
-    !edge ||
-    !quote ||
-    !(edge.volumeIn > 0) ||
-    !(edge.volumeOut > 0) ||
-    !(quote.fromLot > 0) ||
-    !(quote.toLot > 0)
-  ) {
-    return 0;
-  }
-
-  return Math.floor(
-    Math.min(
-      edge.volumeIn / quote.fromLot,
-      edge.volumeOut / quote.toLot,
-    ),
-  );
-}
-
 function cycleRisk(maxSpread, maxUtilization) {
-  if (maxSpread > 20 || maxUtilization > 8) return "high";
-  if (maxSpread > 10 || maxUtilization > 4) return "medium";
+  if (maxSpread > 100 || maxUtilization > 8) return "high";
+  if (maxSpread > 40 || maxUtilization > 4) return "medium";
   return "low";
 }
 
@@ -726,22 +654,18 @@ function createCycleRecord({
       startCurrency,
     ],
     edges: routeEdges.map((edge, index) => {
-      const quote = selectedQuote(edge, mode);
+      const rate = selectedRate(edge);
       const execution = safeExecutions[index];
 
       return {
         ...edge,
-        chosenRate: quote.rate,
-        safeRate: quote.rate * (1 - safetyPercent / 100),
-        fromLot: quote.fromLot,
-        toLot: quote.toLot,
+        chosenRate: rate,
+        safeRate: rate * (1 - safetyPercent / 100),
         availableInput: execution.availableInput,
         requiredInput: execution.spentInput,
         protectedInput: execution.protectedInput,
-        tradeLots: execution.lots,
         leftoverInput: execution.leftoverInput,
         resultingAmount: execution.outputAmount,
-        observedLotCapacity: observedCapacities[index],
         inputUtilizationPercent:
           utilizationDetails[index].inputPercent,
         outputUtilizationPercent:
@@ -758,17 +682,15 @@ function createCycleRecord({
     roi,
     maxSpread: routeMaxSpread,
     maxUtilization,
-    minimumObservedLotCapacity: Math.min(...observedCapacities),
     risk: cycleRisk(routeMaxSpread, maxUtilization),
     mode,
     safetyPercent,
     effectiveMaxSpread: maxSpread,
     effectiveMaxVolumeUtilization: maxVolumeUtilization,
     hardLimits: {
-      maxSpreadPercent: HARD_MAX_SPREAD_PERCENT,
+      maxSpreadPercent: 0,
       maxVolumeUtilizationPercent:
         HARD_MAX_VOLUME_UTILIZATION_PERCENT,
-      minObservedLots: HARD_MIN_OBSERVED_LOTS,
     },
   };
 }
@@ -781,7 +703,6 @@ function emptySearchDiagnostics() {
     rejectedTotal: 0,
     rejected: {
       spread: 0,
-      lowObservedLots: 0,
       wholeLot: 0,
       liquidity: 0,
       noProfit: 0,
@@ -789,10 +710,9 @@ function emptySearchDiagnostics() {
       minRoi: 0,
     },
     effectiveLimits: {
-      maxSpreadPercent: HARD_MAX_SPREAD_PERCENT,
+      maxSpreadPercent: 0,
       maxVolumeUtilizationPercent:
         HARD_MAX_VOLUME_UTILIZATION_PERCENT,
-      minObservedLots: HARD_MIN_OBSERVED_LOTS,
     },
   };
 }
@@ -860,22 +780,15 @@ export function analyzeTriangularCycles(edges, options = {}) {
     };
   }
 
-  const requestedMaxSpread = finiteNonNegative(
+  const maxSpread = finiteNonNegative(
     options.maxSpread,
-    25,
+    0,
   );
+
   const requestedMaxVolumeUtilization = finiteNonNegative(
     options.maxVolumeUtilization,
     10,
   );
-
-  const maxSpread =
-    requestedMaxSpread > 0
-      ? Math.min(
-          requestedMaxSpread,
-          HARD_MAX_SPREAD_PERCENT,
-        )
-      : HARD_MAX_SPREAD_PERCENT;
 
   const maxVolumeUtilization =
     requestedMaxVolumeUtilization > 0
@@ -888,7 +801,6 @@ export function analyzeTriangularCycles(edges, options = {}) {
   diagnostics.effectiveLimits = {
     maxSpreadPercent: maxSpread,
     maxVolumeUtilizationPercent: maxVolumeUtilization,
-    minObservedLots: HARD_MIN_OBSERVED_LOTS,
   };
 
   const reject = (reason) => {
@@ -954,7 +866,10 @@ export function analyzeTriangularCycles(edges, options = {}) {
           ...routeEdges.map((edge) => edge.spreadPercent),
         );
 
-        if (routeMaxSpread > maxSpread) {
+        if (
+          maxSpread > 0 &&
+          routeMaxSpread > maxSpread
+        ) {
           reject("spread");
           continue;
         }
@@ -962,28 +877,21 @@ export function analyzeTriangularCycles(edges, options = {}) {
         const grossAmounts = [budget];
         const safeAmounts = [budget];
         const safeExecutions = [];
-        const observedCapacities = [];
 
         let failedReason = null;
 
         for (const edge of routeEdges) {
-          const quote = selectedQuote(edge, mode);
-          const capacity = observedLotCapacity(edge, quote);
+          const rate = selectedRate(edge);
 
-          if (capacity < HARD_MIN_OBSERVED_LOTS) {
-            failedReason = "lowObservedLots";
-            break;
-          }
-
-          const grossExecution = executeWholeLotTrade(
+          const grossExecution = executeWholeItemTrade(
             grossAmounts.at(-1),
-            quote,
+            rate,
             1,
           );
 
-          const safeExecution = executeWholeLotTrade(
+          const safeExecution = executeWholeItemTrade(
             safeAmounts.at(-1),
-            quote,
+            rate,
             safetyFactor,
           );
 
@@ -992,7 +900,6 @@ export function analyzeTriangularCycles(edges, options = {}) {
             break;
           }
 
-          observedCapacities.push(capacity);
           safeExecutions.push(safeExecution);
           grossAmounts.push(grossExecution.outputAmount);
           safeAmounts.push(safeExecution.outputAmount);
@@ -1047,7 +954,6 @@ export function analyzeTriangularCycles(edges, options = {}) {
           first,
           second,
           routeEdges,
-          observedCapacities,
           safeExecutions,
           utilizationDetails,
           budget,
