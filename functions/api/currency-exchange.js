@@ -26,9 +26,40 @@ function completedHourTimestamp(hoursAgo = 1) {
   return Math.floor(Date.now() / 3_600_000) * 3_600 - hoursAgo * 3_600;
 }
 
+function marketCodes(market) {
+  if (Array.isArray(market?.market_pair)) {
+    return market.market_pair.map((value) => String(value ?? ""));
+  }
+  return String(market?.market_id ?? "").split("|");
+}
+
+function positivePair(dictionary, codes) {
+  return (
+    dictionary &&
+    typeof dictionary === "object" &&
+    codes.length === 2 &&
+    codes.every((code) => Number(dictionary[code]) > 0)
+  );
+}
+
+function usableMarket(market) {
+  const codes = marketCodes(market);
+  if (codes.length !== 2 || !codes[0] || !codes[1] || codes[0] === codes[1]) {
+    return false;
+  }
+
+  if (!positivePair(market?.volume_traded, codes)) {
+    return false;
+  }
+
+  return (
+    positivePair(market?.lowest_ratio, codes) ||
+    positivePair(market?.highest_ratio, codes)
+  );
+}
+
 async function requestHour(timestamp) {
-  const url = `${CDN_BASE}/${timestamp}`;
-  const response = await fetch(url, {
+  const response = await fetch(`${CDN_BASE}/${timestamp}`, {
     headers: {
       Accept: "application/json",
     },
@@ -43,8 +74,10 @@ async function requestHour(timestamp) {
     };
   }
 
-  const payload = await response.json();
-  return { ok: true, payload };
+  return {
+    ok: true,
+    payload: await response.json(),
+  };
 }
 
 export async function onRequestGet(context) {
@@ -80,16 +113,16 @@ export async function onRequestGet(context) {
 
       if (!result.ok) {
         lastError = result;
-
         if (result.status === 429) break;
         continue;
       }
 
-      const markets = Array.isArray(result.payload?.markets)
+      const leagueMarkets = Array.isArray(result.payload?.markets)
         ? result.payload.markets.filter(
             (market) => String(market?.league ?? "") === league,
           )
         : [];
+      const markets = leagueMarkets.filter(usableMarket);
 
       if (!markets.length && hoursAgo < MAX_LOOKBACK_HOURS) continue;
 
@@ -101,10 +134,15 @@ export async function onRequestGet(context) {
           hour: timestamp,
           next_change_id: result.payload?.next_change_id ?? null,
           markets,
+          diagnostics: {
+            received_for_league: leagueMarkets.length,
+            usable: markets.length,
+            filtered: leagueMarkets.length - markets.length,
+          },
           source: "GGG Currency Exchange public CDN",
           historical: true,
           note:
-            "The endpoint contains completed hourly digests and never includes the current hour.",
+            "Only completed hourly digests are returned; the current hour is unavailable.",
         },
         200,
         {
@@ -125,7 +163,7 @@ export async function onRequestGet(context) {
         ? `Currency Exchange CDN failed (${lastError.status})${
             lastError.detail ? `: ${lastError.detail}` : ""
           }`
-        : "No completed-hour markets were found for this league.",
+        : "No usable completed-hour markets were found for this league.",
     });
   } catch (error) {
     return jsonResponse({
