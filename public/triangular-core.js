@@ -3,6 +3,7 @@ const CURRENCIES = [
     key: "chaos-orb",
     name: "Chaos Orb",
     short: "Chaos",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyRerollRare",
     aliases: ["chaos", "chaos-orb"],
   },
@@ -10,6 +11,7 @@ const CURRENCIES = [
     key: "divine-orb",
     name: "Divine Orb",
     short: "Divine",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyModValues",
     aliases: ["divine", "divine-orb"],
   },
@@ -17,6 +19,7 @@ const CURRENCIES = [
     key: "exalted-orb",
     name: "Exalted Orb",
     short: "Exalted",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyAddModToRare",
     aliases: ["exalted", "exalted-orb"],
   },
@@ -24,6 +27,7 @@ const CURRENCIES = [
     key: "orb-of-annulment",
     name: "Orb of Annulment",
     short: "Annul",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyRemoveMod",
     aliases: ["annulment", "orb-of-annulment"],
   },
@@ -31,6 +35,7 @@ const CURRENCIES = [
     key: "orb-of-fusing",
     name: "Orb of Fusing",
     short: "Fusing",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyRerollSocketLinks",
     aliases: ["fusing", "orb-of-fusing"],
   },
@@ -38,6 +43,7 @@ const CURRENCIES = [
     key: "orb-of-alteration",
     name: "Orb of Alteration",
     short: "Alteration",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyRerollMagic",
     aliases: ["alteration", "orb-of-alteration"],
   },
@@ -45,6 +51,7 @@ const CURRENCIES = [
     key: "orb-of-alchemy",
     name: "Orb of Alchemy",
     short: "Alchemy",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyUpgradeToRare",
     aliases: ["alchemy", "orb-of-alchemy"],
   },
@@ -52,6 +59,7 @@ const CURRENCIES = [
     key: "orb-of-scouring",
     name: "Orb of Scouring",
     short: "Scouring",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyConvertToNormal",
     aliases: ["scouring", "orb-of-scouring"],
   },
@@ -59,6 +67,7 @@ const CURRENCIES = [
     key: "orb-of-regret",
     name: "Orb of Regret",
     short: "Regret",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyPassiveSkillRefund",
     aliases: ["regret", "orb-of-regret"],
   },
@@ -66,6 +75,7 @@ const CURRENCIES = [
     key: "vaal-orb",
     name: "Vaal Orb",
     short: "Vaal",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyVaal",
     aliases: ["vaal", "vaal-orb"],
   },
@@ -73,6 +83,7 @@ const CURRENCIES = [
     key: "chromatic-orb",
     name: "Chromatic Orb",
     short: "Chromatic",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyRerollSocketColours",
     aliases: ["chromatic", "chromatic-orb"],
   },
@@ -80,6 +91,7 @@ const CURRENCIES = [
     key: "jewellers-orb",
     name: "Jeweller's Orb",
     short: "Jeweller",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyRerollSocketNumbers",
     aliases: ["jeweller", "jewellers-orb", "jeweller's-orb"],
   },
@@ -87,6 +99,7 @@ const CURRENCIES = [
     key: "orb-of-chance",
     name: "Orb of Chance",
     short: "Chance",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyUpgradeRandomly",
     aliases: ["chance", "orb-of-chance"],
   },
@@ -94,6 +107,7 @@ const CURRENCIES = [
     key: "regal-orb",
     name: "Regal Orb",
     short: "Regal",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyUpgradeMagicToRare",
     aliases: ["regal", "regal-orb"],
   },
@@ -101,6 +115,7 @@ const CURRENCIES = [
     key: "blessed-orb",
     name: "Blessed Orb",
     short: "Blessed",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyImplicitMod",
     aliases: ["blessed", "blessed-orb"],
   },
@@ -108,6 +123,7 @@ const CURRENCIES = [
     key: "gemcutters-prism",
     name: "Gemcutter's Prism",
     short: "GCP",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyGemQuality",
     aliases: ["gcp", "gemcutters-prism", "gemcutter's-prism"],
   },
@@ -115,6 +131,7 @@ const CURRENCIES = [
     key: "glassblowers-bauble",
     name: "Glassblower's Bauble",
     short: "Bauble",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyFlaskQuality",
     aliases: ["glassblowers-bauble", "glassblower's-bauble"],
   },
@@ -122,6 +139,7 @@ const CURRENCIES = [
     key: "cartographers-chisel",
     name: "Cartographer's Chisel",
     short: "Chisel",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyMapQuality",
     aliases: ["chisel", "cartographers-chisel", "cartographer's-chisel"],
   },
@@ -129,6 +147,7 @@ const CURRENCIES = [
     key: "orb-of-transmutation",
     name: "Orb of Transmutation",
     short: "Transmutation",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyUpgradeToMagic",
     aliases: ["transmutation", "orb-of-transmutation"],
   },
@@ -136,23 +155,220 @@ const CURRENCIES = [
     key: "orb-of-augmentation",
     name: "Orb of Augmentation",
     short: "Augmentation",
+    category: "currency",
     metadata: "Metadata/Items/Currency/CurrencyAddModToMagic",
     aliases: ["augmentation", "orb-of-augmentation"],
   },
 ];
 
+
+const ESSENCE_TIERS = [
+  ["1", "Whispering"],
+  ["2", "Muttering"],
+  ["3", "Weeping"],
+  ["4", "Wailing"],
+  ["5", "Screaming"],
+  ["6", "Shrieking"],
+  ["7", "Deafening"],
+];
+
+const ESSENCE_FAMILIES = [
+  ["Greed", "Greed"],
+  ["Contempt", "Contempt"],
+  ["Hatred", "Hatred"],
+  ["Woe", "Woe"],
+  ["Fear", "Fear"],
+  ["Anger", "Anger"],
+  ["Torment", "Torment"],
+  ["Sorrow", "Sorrow"],
+  ["Rage", "Rage"],
+  ["Suffering", "Suffering"],
+  ["Wrath", "Wrath"],
+  ["Doubt", "Doubt"],
+  ["Loathing", "Loathing"],
+  ["Zeal", "Zeal"],
+  ["Anguish", "Anguish"],
+  ["Spite", "Spite"],
+  ["Scorn", "Scorn"],
+  ["Envy", "Envy"],
+];
+
+const ESSENCES = ESSENCE_FAMILIES.flatMap(([metadataFamily, displayFamily]) =>
+  ESSENCE_TIERS.map(([metadataTier, displayTier]) => ({
+    key: `essence-${displayTier.toLowerCase()}-${displayFamily.toLowerCase()}`,
+    name: `${displayTier} Essence of ${displayFamily}`,
+    short: `${displayTier} ${displayFamily}`,
+    category: "essence",
+    metadata:
+      `Metadata/Items/Currency/CurrencyEssence${metadataFamily}${metadataTier}`,
+    aliases: [],
+  })),
+);
+
+const SPECIAL_ESSENCES = [
+  ["Hysteria", "Essence of Hysteria"],
+  ["Insanity", "Essence of Insanity"],
+  ["Horror", "Essence of Horror"],
+  ["Delirium", "Essence of Delirium"],
+].map(([metadataName, name]) => ({
+  key: `essence-${metadataName.toLowerCase()}`,
+  name,
+  short: name.replace(/^Essence of /, ""),
+  category: "essence",
+  metadata: `Metadata/Items/Currency/CurrencyEssence${metadataName}`,
+  aliases: [],
+}));
+
+// First exact scarab catalogue. Unknown Metadata IDs are intentionally ignored:
+// the interface must never display a guessed or misleading item name.
+const SCARABS = [
+  {
+    key: "abyss-scarab",
+    name: "Abyss Scarab",
+    short: "Abyss Scarab",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabAbyssNew1",
+    aliases: [],
+  },
+  {
+    key: "bestiary-scarab",
+    name: "Bestiary Scarab",
+    short: "Bestiary Scarab",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabBeastsNew1",
+    aliases: [],
+  },
+  {
+    key: "expedition-scarab",
+    name: "Expedition Scarab",
+    short: "Expedition Scarab",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabExpedition1",
+    aliases: [],
+  },
+  {
+    key: "harvest-scarab",
+    name: "Harvest Scarab",
+    short: "Harvest Scarab",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabHarvest1",
+    aliases: [],
+  },
+  {
+    key: "legion-scarab",
+    name: "Legion Scarab",
+    short: "Legion Scarab",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabLegionNew1",
+    aliases: [],
+  },
+  {
+    key: "titanic-scarab",
+    name: "Titanic Scarab",
+    short: "Titanic Scarab",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabUniquesNew1",
+    aliases: [],
+  },
+  {
+    key: "torment-scarab-of-possession",
+    name: "Torment Scarab of Possession",
+    short: "Torment: Possession",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabTormentNew4",
+    aliases: [],
+  },
+  {
+    key: "cartography-scarab-of-singularity",
+    name: "Cartography Scarab of Singularity",
+    short: "Cartography: Singularity",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabMapsNew3",
+    aliases: [],
+  },
+  {
+    key: "cartography-scarab-of-corruption",
+    name: "Cartography Scarab of Corruption",
+    short: "Cartography: Corruption",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabMapsNew4",
+    aliases: [],
+  },
+  {
+    key: "scarab-of-adversaries",
+    name: "Scarab of Adversaries",
+    short: "Scarab: Adversaries",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabMisc2",
+    aliases: [],
+  },
+  {
+    key: "scarab-of-stability",
+    name: "Scarab of Stability",
+    short: "Scarab: Stability",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabMisc5",
+    aliases: [],
+  },
+  {
+    key: "scarab-of-evolution",
+    name: "Scarab of Evolution",
+    short: "Scarab: Evolution",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabMisc7",
+    aliases: [],
+  },
+  {
+    key: "horned-scarab-of-tradition",
+    name: "Horned Scarab of Tradition",
+    short: "Horned: Tradition",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabUber5",
+    aliases: [],
+  },
+  {
+    key: "anarchy-scarab-of-the-exceptional",
+    name: "Anarchy Scarab of the Exceptional",
+    short: "Anarchy: Exceptional",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabAnarchy4",
+    aliases: [],
+  },
+  {
+    key: "ritual-scarab-of-abundance",
+    name: "Ritual Scarab of Abundance",
+    short: "Ritual: Abundance",
+    category: "scarab",
+    metadata: "Metadata/Items/Scarabs/ScarabRitual3",
+    aliases: [],
+  },
+];
+
+const ALL_ASSETS = [
+  ...CURRENCIES,
+  ...ESSENCES,
+  ...SPECIAL_ESSENCES,
+  ...SCARABS,
+];
+
+const INTERMEDIATE_CATEGORIES = Object.freeze([
+  { key: "currency", name: "Валюта" },
+  { key: "essence", name: "Эссенции" },
+  { key: "scarab", name: "Скарабеи" },
+]);
+
 const HARD_MAX_SPREAD_PERCENT = 50;
 const HARD_MAX_VOLUME_UTILIZATION_PERCENT = 25;
 const HARD_MIN_OBSERVED_LOTS = 3;
 
-const CURRENCY_BY_KEY = new Map(CURRENCIES.map((currency) => [currency.key, currency]));
-const CURRENCY_ALIASES = new Map();
+const ASSET_BY_KEY = new Map(ALL_ASSETS.map((asset) => [asset.key, asset]));
+const ASSET_ALIASES = new Map();
 
 function normalizedIdentifier(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-for (const currency of CURRENCIES) {
+for (const currency of ALL_ASSETS) {
   const aliases = [
     currency.key,
     currency.name,
@@ -163,7 +379,7 @@ for (const currency of CURRENCIES) {
   ];
 
   for (const alias of aliases) {
-    CURRENCY_ALIASES.set(normalizedIdentifier(alias), currency);
+    ASSET_ALIASES.set(normalizedIdentifier(alias), currency);
   }
 }
 
@@ -171,8 +387,16 @@ export function supportedCurrencies() {
   return CURRENCIES.map((currency) => ({ ...currency }));
 }
 
+export function supportedIntermediateCategories() {
+  return INTERMEDIATE_CATEGORIES.map((category) => ({ ...category }));
+}
+
+export function supportedAssets() {
+  return ALL_ASSETS.map((asset) => ({ ...asset }));
+}
+
 export function resolveCurrency(value) {
-  return CURRENCY_ALIASES.get(normalizedIdentifier(value)) ?? null;
+  return ASSET_ALIASES.get(normalizedIdentifier(value)) ?? null;
 }
 
 function normalizeAmountMap(source) {
@@ -330,6 +554,11 @@ export function buildDirectedExchangeEdges(markets) {
     zeroVolumeOrRatio: 0,
     usableMarkets: 0,
     directedEdges: 0,
+    assetsByCategory: {
+      currency: 0,
+      essence: 0,
+      scarab: 0,
+    },
   };
 
   for (const market of Array.isArray(markets) ? markets : []) {
@@ -374,6 +603,19 @@ export function buildDirectedExchangeEdges(markets) {
   }
 
   diagnostics.directedEdges = edges.length;
+
+  const uniqueAssets = new Map();
+  for (const edge of edges) {
+    uniqueAssets.set(edge.from.key, edge.from);
+    uniqueAssets.set(edge.to.key, edge.to);
+  }
+
+  for (const asset of uniqueAssets.values()) {
+    if (diagnostics.assetsByCategory[asset.category] !== undefined) {
+      diagnostics.assetsByCategory[asset.category] += 1;
+    }
+  }
+
   return { edges, diagnostics };
 }
 
@@ -460,6 +702,14 @@ export function findTriangularCycles(edges, options = {}) {
   const mode = options.mode === "midpoint" ? "midpoint" : "conservative";
   const minProfit = finiteNonNegative(options.minProfit, 0);
   const minRoi = finiteNonNegative(options.minRoi, 0);
+  const allowedIntermediateCategories = new Set(
+    Array.isArray(options.allowedIntermediateCategories)
+      ? options.allowedIntermediateCategories
+      : ["currency", "essence", "scarab"],
+  );
+
+  if (!allowedIntermediateCategories.size) return [];
+
   const requestedMaxSpread = finiteNonNegative(options.maxSpread, 25);
   const requestedMaxVolumeUtilization = finiteNonNegative(
     options.maxVolumeUtilization,
@@ -491,6 +741,7 @@ export function findTriangularCycles(edges, options = {}) {
 
   for (const first of outgoing.get(startCurrency.key) ?? []) {
     if (first.to.key === startCurrency.key) continue;
+    if (!allowedIntermediateCategories.has(first.to.category)) continue;
 
     for (const second of outgoing.get(first.to.key) ?? []) {
       if (
@@ -498,6 +749,10 @@ export function findTriangularCycles(edges, options = {}) {
         second.to.key === first.from.key ||
         second.to.key === first.to.key
       ) {
+        continue;
+      }
+
+      if (!allowedIntermediateCategories.has(second.to.category)) {
         continue;
       }
 
@@ -604,6 +859,10 @@ export function findTriangularCycles(edges, options = {}) {
         cycles.push({
           key: routeKey,
           startCurrency,
+          intermediateCategories: [
+            first.to.category,
+            second.to.category,
+          ],
           currencies: [
             startCurrency,
             first.to,

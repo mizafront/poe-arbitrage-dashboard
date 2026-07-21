@@ -932,3 +932,74 @@ table { min-width: 1780px; }
   }
 }
 /* TRIANGULAR_ARBITRAGE_END */
+
+/* TRIANGULAR_CATEGORIES_V011_START */
+.triangle-categories {
+  margin: 14px 0 0;
+  padding: 12px 13px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.triangle-categories legend {
+  padding: 0 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+#triangleCategoryOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.triangle-category-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.triangle-category-option input {
+  width: auto;
+  margin: 0;
+}
+
+.triangle-category-summary {
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.triangle-route-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.triangle-route-categories span {
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.triangle-steps strong em {
+  margin-left: 7px;
+  color: var(--muted);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+}
+/* TRIANGULAR_CATEGORIES_V011_END */

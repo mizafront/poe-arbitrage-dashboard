@@ -4,6 +4,7 @@ import {
   buildDirectedExchangeEdges,
   findTriangularCycles,
   supportedCurrencies,
+  supportedIntermediateCategories,
 } from "./triangular-core.js";
 
 const SETTINGS_KEY = "poe-triangular-arbitrage:v1";
@@ -118,12 +119,17 @@ function panelMarkup() {
         </label>
       </div>
 
+      <fieldset class="triangle-categories">
+        <legend>Разрешённые промежуточные категории</legend>
+        <div id="triangleCategoryOptions"></div>
+      </fieldset>
+
       <div class="triangle-note">
-        Каждый шаг выполняется только целыми торговыми лотами. Маршрут
-        автоматически отклоняется, если использует более 25% входного или
-        выходного часового объёма, имеет разброс более 50% либо рынок содержит
-        меньше трёх эквивалентных лотов. Эти пределы нельзя отключить значением 0.
-        Данные GGG относятся к завершённому часу, а не к текущему стакану заявок.
+        Поиск теперь включает обычную валюту, все основные эссенции и
+        первый проверенный набор скарабеев. Каждый шаг выполняется только целыми
+        торговыми лотами. Маршрут автоматически отклоняется при недостаточном
+        часовом объёме, чрезмерном разбросе или единичном рынке. Неизвестные
+        Metadata ID скарабеев намеренно пропускаются.
       </div>
 
       <div class="triangle-metrics">
@@ -132,7 +138,7 @@ function panelMarkup() {
           <strong id="triangleMarketCount">—</strong>
         </div>
         <div class="metric-card">
-          <span>Валют в графе</span>
+          <span>Активов в графе</span>
           <strong id="triangleCurrencyCount">—</strong>
         </div>
         <div class="metric-card">
@@ -144,6 +150,8 @@ function panelMarkup() {
           <strong id="triangleHour">—</strong>
         </div>
       </div>
+
+      <div id="triangleCategorySummary" class="triangle-category-summary"></div>
 
       <div id="triangleStatus" class="triangle-status" aria-live="polite">
         Подготовка модуля…
@@ -186,6 +194,8 @@ function elements() {
     safety: document.querySelector("#triangleSafety"),
     maxSpread: document.querySelector("#triangleMaxSpread"),
     maxUtilization: document.querySelector("#triangleMaxUtilization"),
+    categoryOptions: document.querySelector("#triangleCategoryOptions"),
+    categorySummary: document.querySelector("#triangleCategorySummary"),
     refresh: document.querySelector("#triangleRefresh"),
     status: document.querySelector("#triangleStatus"),
     results: document.querySelector("#triangleResults"),
@@ -194,6 +204,35 @@ function elements() {
     cycleCount: document.querySelector("#triangleCycleCount"),
     hour: document.querySelector("#triangleHour"),
   };
+}
+
+function populateCategoryOptions() {
+  const ui = elements();
+  if (!ui.categoryOptions) return;
+
+  ui.categoryOptions.innerHTML = supportedIntermediateCategories()
+    .map(
+      (category) => `
+        <label class="triangle-category-option">
+          <input
+            type="checkbox"
+            name="triangleCategory"
+            value="${escapeHtml(category.key)}"
+            checked
+          >
+          <span>${escapeHtml(category.name)}</span>
+        </label>
+      `,
+    )
+    .join("");
+}
+
+function selectedCategories() {
+  return [
+    ...document.querySelectorAll(
+      'input[name="triangleCategory"]:checked',
+    ),
+  ].map((element) => element.value);
 }
 
 function readSettings() {
@@ -211,6 +250,7 @@ function readSettings() {
       0,
       numberValue(ui.maxUtilization, 10),
     ),
+    allowedIntermediateCategories: selectedCategories(),
   };
 }
 
@@ -245,6 +285,16 @@ function loadSettings() {
         element.value = String(saved[key]);
       }
     }
+
+    if (Array.isArray(saved.allowedIntermediateCategories)) {
+      const allowed = new Set(saved.allowedIntermediateCategories);
+
+      for (const checkbox of document.querySelectorAll(
+        'input[name="triangleCategory"]',
+      )) {
+        checkbox.checked = allowed.has(checkbox.value);
+      }
+    }
   } catch (error) {
     console.warn("Не удалось загрузить настройки цепочек:", error);
   }
@@ -277,6 +327,12 @@ function routeText(cycle) {
   return cycle.currencies.map((currency) => currency.short).join(" → ");
 }
 
+function categoryLabel(category) {
+  if (category === "essence") return "эссенция";
+  if (category === "scarab") return "скарабей";
+  return "валюта";
+}
+
 function riskLabel(risk) {
   if (risk === "high") return "высокий";
   if (risk === "medium") return "средний";
@@ -289,7 +345,11 @@ function renderCycle(cycle, index) {
       (edge, stepIndex) => `
         <li>
           <div>
-            <strong>${stepIndex + 1}. ${escapeHtml(edge.from.short)} → ${escapeHtml(edge.to.short)}</strong>
+            <strong>
+              ${stepIndex + 1}. ${escapeHtml(edge.from.short)}
+              → ${escapeHtml(edge.to.short)}
+              <em>${escapeHtml(categoryLabel(edge.to.category))}</em>
+            </strong>
             <span>×${formatNumber(edge.safeRate, 6)}</span>
           </div>
           <small>
@@ -321,6 +381,14 @@ function renderCycle(cycle, index) {
         <div>
           <span class="triangle-rank">#${index + 1}</span>
           <h3>${escapeHtml(routeText(cycle))}</h3>
+          <div class="triangle-route-categories">
+            ${cycle.intermediateCategories
+              .map(
+                (category) =>
+                  `<span>${escapeHtml(categoryLabel(category))}</span>`,
+              )
+              .join("")}
+          </div>
         </div>
         <span class="triangle-risk triangle-risk-${cycle.risk}">
           риск: ${riskLabel(cycle.risk)}
@@ -386,6 +454,14 @@ function render() {
 
   ui.currencyCount.textContent = currencyKeys.size.toLocaleString("ru-RU");
   ui.cycleCount.textContent = state.cycles.length.toLocaleString("ru-RU");
+
+  if (ui.categorySummary) {
+    const counts = state.graph.diagnostics.assetsByCategory ?? {};
+    ui.categorySummary.textContent =
+      `Распознано: валют ${counts.currency ?? 0}, ` +
+      `эссенций ${counts.essence ?? 0}, ` +
+      `скарабеев ${counts.scarab ?? 0}.`;
+  }
   ui.hour.textContent = formatHour(state.payload?.hour);
 
   if (!state.cycles.length) {
@@ -499,6 +575,7 @@ function bindEvents() {
     ui.safety,
     ui.maxSpread,
     ui.maxUtilization,
+    ...document.querySelectorAll('input[name="triangleCategory"]'),
   ].filter(Boolean);
 
   for (const control of controls) {
@@ -551,6 +628,7 @@ function syncDefaultsFromMainForm() {
 function init() {
   insertPanel();
   populateCurrencySelect();
+  populateCategoryOptions();
   syncDefaultsFromMainForm();
   loadSettings();
   bindEvents();
