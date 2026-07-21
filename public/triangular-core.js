@@ -141,6 +141,10 @@ const CURRENCIES = [
   },
 ];
 
+const HARD_MAX_SPREAD_PERCENT = 50;
+const HARD_MAX_VOLUME_UTILIZATION_PERCENT = 25;
+const HARD_MIN_OBSERVED_LOTS = 3;
+
 const CURRENCY_BY_KEY = new Map(CURRENCIES.map((currency) => [currency.key, currency]));
 const CURRENCY_ALIASES = new Map();
 
@@ -415,6 +419,26 @@ function executeWholeLotTrade(inputAmount, quote, safetyFactor = 1) {
   };
 }
 
+function observedLotCapacity(edge, quote) {
+  if (
+    !edge ||
+    !quote ||
+    !(edge.volumeIn > 0) ||
+    !(edge.volumeOut > 0) ||
+    !(quote.fromLot > 0) ||
+    !(quote.toLot > 0)
+  ) {
+    return 0;
+  }
+
+  return Math.floor(
+    Math.min(
+      edge.volumeIn / quote.fromLot,
+      edge.volumeOut / quote.toLot,
+    ),
+  );
+}
+
 function cycleRisk(maxSpread, maxUtilization) {
   if (maxSpread > 20 || maxUtilization > 8) return "high";
   if (maxSpread > 10 || maxUtilization > 4) return "medium";
@@ -436,11 +460,24 @@ export function findTriangularCycles(edges, options = {}) {
   const mode = options.mode === "midpoint" ? "midpoint" : "conservative";
   const minProfit = finiteNonNegative(options.minProfit, 0);
   const minRoi = finiteNonNegative(options.minRoi, 0);
-  const maxSpread = finiteNonNegative(options.maxSpread, 25);
-  const maxVolumeUtilization = finiteNonNegative(
+  const requestedMaxSpread = finiteNonNegative(options.maxSpread, 25);
+  const requestedMaxVolumeUtilization = finiteNonNegative(
     options.maxVolumeUtilization,
     10,
   );
+
+  const maxSpread =
+    requestedMaxSpread > 0
+      ? Math.min(requestedMaxSpread, HARD_MAX_SPREAD_PERCENT)
+      : HARD_MAX_SPREAD_PERCENT;
+
+  const maxVolumeUtilization =
+    requestedMaxVolumeUtilization > 0
+      ? Math.min(
+          requestedMaxVolumeUtilization,
+          HARD_MAX_VOLUME_UTILIZATION_PERCENT,
+        )
+      : HARD_MAX_VOLUME_UTILIZATION_PERCENT;
 
   const outgoing = new Map();
 
@@ -484,7 +521,7 @@ export function findTriangularCycles(edges, options = {}) {
           ...routeEdges.map((edge) => edge.spreadPercent),
         );
 
-        if (maxSpread > 0 && routeMaxSpread > maxSpread) continue;
+        if (routeMaxSpread > maxSpread) continue;
 
         const grossAmounts = [budget];
         const safeAmounts = [budget];
@@ -492,8 +529,17 @@ export function findTriangularCycles(edges, options = {}) {
         const safeExecutions = [];
         let executable = true;
 
+        const observedCapacities = [];
+
         for (const edge of routeEdges) {
           const quote = selectedQuote(edge, mode);
+          const capacity = observedLotCapacity(edge, quote);
+
+          if (capacity < HARD_MIN_OBSERVED_LOTS) {
+            executable = false;
+            break;
+          }
+
           const grossExecution = executeWholeLotTrade(
             grossAmounts.at(-1),
             quote,
@@ -510,6 +556,7 @@ export function findTriangularCycles(edges, options = {}) {
             break;
           }
 
+          observedCapacities.push(capacity);
           grossExecutions.push(grossExecution);
           safeExecutions.push(safeExecution);
           grossAmounts.push(grossExecution.outputAmount);
@@ -518,19 +565,31 @@ export function findTriangularCycles(edges, options = {}) {
 
         if (!executable) continue;
 
-        const utilizations = routeEdges.map((edge, index) => {
-          const spentInput = safeExecutions[index].spentInput;
-          return edge.volumeIn > 0
-            ? (spentInput / edge.volumeIn) * 100
-            : Number.POSITIVE_INFINITY;
+        const utilizationDetails = routeEdges.map((edge, index) => {
+          const execution = safeExecutions[index];
+
+          const inputPercent =
+            edge.volumeIn > 0
+              ? (execution.spentInput / edge.volumeIn) * 100
+              : Number.POSITIVE_INFINITY;
+
+          const outputPercent =
+            edge.volumeOut > 0
+              ? (execution.outputAmount / edge.volumeOut) * 100
+              : Number.POSITIVE_INFINITY;
+
+          return {
+            inputPercent,
+            outputPercent,
+            maximumPercent: Math.max(inputPercent, outputPercent),
+          };
         });
 
-        const maxUtilization = Math.max(...utilizations);
+        const maxUtilization = Math.max(
+          ...utilizationDetails.map((detail) => detail.maximumPercent),
+        );
 
-        if (
-          maxVolumeUtilization > 0 &&
-          maxUtilization > maxVolumeUtilization
-        ) {
+        if (maxUtilization > maxVolumeUtilization) {
           continue;
         }
 
@@ -567,7 +626,13 @@ export function findTriangularCycles(edges, options = {}) {
               tradeLots: execution.lots,
               leftoverInput: execution.leftoverInput,
               resultingAmount: execution.outputAmount,
-              utilizationPercent: utilizations[index],
+              observedLotCapacity: observedCapacities[index],
+              inputUtilizationPercent:
+                utilizationDetails[index].inputPercent,
+              outputUtilizationPercent:
+                utilizationDetails[index].outputPercent,
+              utilizationPercent:
+                utilizationDetails[index].maximumPercent,
             };
           }),
           budget,
@@ -581,6 +646,14 @@ export function findTriangularCycles(edges, options = {}) {
           risk: cycleRisk(routeMaxSpread, maxUtilization),
           mode,
           safetyPercent,
+          effectiveMaxSpread: maxSpread,
+          effectiveMaxVolumeUtilization: maxVolumeUtilization,
+          hardLimits: {
+            maxSpreadPercent: HARD_MAX_SPREAD_PERCENT,
+            maxVolumeUtilizationPercent:
+              HARD_MAX_VOLUME_UTILIZATION_PERCENT,
+            minObservedLots: HARD_MIN_OBSERVED_LOTS,
+          },
         });
       }
     }

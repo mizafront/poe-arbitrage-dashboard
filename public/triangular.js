@@ -108,21 +108,22 @@ function panelMarkup() {
         <label>
           Макс. разброс курса, %
           <input id="triangleMaxSpread" type="number" min="0" step="1" value="25">
-          <small>0 — не фильтровать</small>
+          <small>0 — использовать обязательный предел 50%</small>
         </label>
 
         <label>
           Макс. доля часового объёма, %
           <input id="triangleMaxUtilization" type="number" min="0" step="1" value="10">
-          <small>0 — не фильтровать</small>
+          <small>0 — использовать обязательный предел 25%</small>
         </label>
       </div>
 
       <div class="triangle-note">
-        Каждый шаг выполняется только целыми торговыми лотами: дробные Divine,
-        Chaos и другие предметы не допускаются. Неиспользованный остаток
-        промежуточной валюты показывается отдельно и не считается прибылью.
-        Объём GGG относится к завершённому часу, а не к текущему стакану заявок.
+        Каждый шаг выполняется только целыми торговыми лотами. Маршрут
+        автоматически отклоняется, если использует более 25% входного или
+        выходного часового объёма, имеет разброс более 50% либо рынок содержит
+        меньше трёх эквивалентных лотов. Эти пределы нельзя отключить значением 0.
+        Данные GGG относятся к завершённому часу, а не к текущему стакану заявок.
       </div>
 
       <div class="triangle-metrics">
@@ -302,8 +303,11 @@ function renderCycle(cycle, index) {
             остаток ${formatNumber(edge.leftoverInput, 0)}
             ${escapeHtml(edge.from.short)};
             лот ${formatNumber(edge.fromLot, 0)}:${formatNumber(edge.toLot, 0)};
-            объём часа ${formatNumber(edge.volumeIn, 0)};
-            используется ${formatPercent(edge.utilizationPercent)};
+            объём входа/выхода
+            ${formatNumber(edge.volumeIn, 0)}/${formatNumber(edge.volumeOut, 0)};
+            доступно около ${formatNumber(edge.observedLotCapacity, 0)} лот.;
+            используется ${formatPercent(edge.inputUtilizationPercent)}
+            входа и ${formatPercent(edge.outputUtilizationPercent)} выхода;
             разброс ${formatPercent(edge.spreadPercent)}
           </small>
         </li>
@@ -333,7 +337,7 @@ function renderCycle(cycle, index) {
           <strong>${formatNumber(cycle.safeResult, 0)} ${escapeHtml(cycle.startCurrency.short)}</strong>
         </div>
         <div>
-          <span>Безопасная прибыль</span>
+          <span>Расчётная прибыль</span>
           <strong class="${cycle.safeProfit > 0 ? "triangle-positive" : "triangle-negative"}">
             ${cycle.safeProfit > 0 ? "+" : ""}${formatNumber(cycle.safeProfit, 0)}
             ${escapeHtml(cycle.startCurrency.short)}
@@ -386,7 +390,7 @@ function render() {
 
   if (!state.cycles.length) {
     ui.status.textContent =
-      "Безопасных прибыльных циклов с текущими фильтрами не найдено.";
+      "Исполнимых прибыльных циклов с текущими фильтрами не найдено.";
 
     ui.results.innerHTML = `
       <div class="triangle-empty">
