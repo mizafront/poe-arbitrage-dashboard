@@ -1126,6 +1126,32 @@ async function refreshData({ silent = false } = {}) {
       return acc;
     }, {});
 
+    const sharedMarketData = {
+      league,
+      updatedAt: Date.now(),
+      sourcePrimary: state.sourcePrimary,
+      itemsByCategory: {
+        oil: oils,
+        essence: essences,
+        card: cards,
+        currency: currencies,
+        fragment: fragments,
+        "unique-map": uniqueMaps,
+        scarab: scarabs,
+        "skill-gem": skillGems,
+        "unique-accessory": uniqueAccessories,
+        "unique-weapon": uniqueWeapons,
+        "unique-armour": uniqueArmours,
+        "unique-flask": uniqueFlasks,
+        "unique-jewel": uniqueJewels
+      },
+      cardPairs
+    };
+    window.__POE_MARKET_DATA__ = sharedMarketData;
+    window.dispatchEvent(new CustomEvent("poe-market-data", {
+      detail: sharedMarketData
+    }));
+
     state.pairs = [...buildOilPairs(oils), ...buildEssencePairs(essences), ...cardPairs];
     state.history = loadHistory(league);
     appendSnapshot(league, createSnapshot({

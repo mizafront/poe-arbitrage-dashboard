@@ -1,293 +1,299 @@
 "use strict";
 
 import {
-  buildDirectedExchangeEdges,
-  analyzeTriangularCycles,
-  supportedCurrencies,
-  supportedIntermediateCategories,
+  analyzeGuaranteedChains,
+  HARD_MAX_HOURLY_VOLUME_PERCENT,
+  routeTypeLabel,
 } from "./triangular-core.js";
 
-const SETTINGS_KEY = "poe-triangular-arbitrage:v1";
+const SETTINGS_KEY = "poe-guaranteed-chains:v0.12.0";
 
 const state = {
-  payload: null,
-  graph: null,
-  cycles: [],
+  marketData: null,
   analysis: null,
-  loading: false,
 };
+
+const TYPE_OPTIONS = Object.freeze([
+  {
+    key: "vendor",
+    name: "Обмены торговцев",
+    description: "Фиксированные курсы NPC",
+  },
+  {
+    key: "oil",
+    name: "Масла",
+    description: "Несколько улучшений 3:1 подряд",
+  },
+  {
+    key: "essence",
+    name: "Эссенции",
+    description: "Несколько улучшений 3:1 подряд",
+  },
+  {
+    key: "card",
+    name: "Карты + продолжение",
+    description: "Комплект карт, затем ещё одно преобразование",
+  },
+]);
 
 function escapeHtml(value) {
   return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
-function formatNumber(value, maximumFractionDigits = 2) {
-  if (!Number.isFinite(Number(value))) return "—";
-  return Number(value).toLocaleString("ru-RU", {
-    maximumFractionDigits,
-  });
-}
-
-function formatPercent(value) {
-  if (!Number.isFinite(Number(value))) return "—";
-  return `${formatNumber(value, 2)}%`;
-}
-
-function formatHour(timestamp) {
-  const number = Number(timestamp);
-  if (!Number.isFinite(number)) return "неизвестно";
-
-  return new Date(number * 1000).toLocaleString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function numberValue(element, fallback = 0) {
+function numberInput(element, fallback = 0) {
   const value = Number(element?.value);
   return Number.isFinite(value) ? value : fallback;
 }
 
-function panelMarkup() {
-  return `
-    <section id="trianglePanel" class="panel triangle-panel" aria-labelledby="triangleTitle">
-      <div class="triangle-heading">
-        <div>
-          <div class="eyebrow">ВАЛЮТНЫЕ ЦЕПОЧКИ</div>
-          <h2 id="triangleTitle">Треугольный арбитраж</h2>
-          <p class="triangle-intro">
-            Ищет циклы <strong>A → B → C → A</strong> по официальным рынкам GGG
-            за последний завершённый час. Результат является кандидатом для ручной
-            проверки, а не гарантией исполнения.
-          </p>
-        </div>
-        <button id="triangleRefresh" class="primary" type="button">
-          Найти цепочки
-        </button>
-      </div>
+function formatNumber(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return number.toLocaleString("ru-RU", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: 0,
+  });
+}
 
-      <div class="triangle-controls">
-        <label>
-          Стартовая валюта
-          <select id="triangleStart"></select>
-        </label>
-
-        <label>
-          Бюджет
-          <input id="triangleBudget" type="number" min="0.01" step="0.01" value="100">
-        </label>
-
-        <label>
-          Мин. прибыль
-          <input id="triangleMinProfit" type="number" min="0" step="0.01" value="1">
-        </label>
-
-        <label>
-          Мин. ROI, %
-          <input id="triangleMinRoi" type="number" min="0" step="0.1" value="0.5">
-        </label>
-
-        <label>
-          Расчёт курса
-          <select id="triangleMode" disabled>
-            <option value="average">Средний фактический курс часа</option>
-          </select>
-        </label>
-
-        <label>
-          Запас на шаг, %
-          <input id="triangleSafety" type="number" min="0" max="25" step="0.1" value="1">
-        </label>
-
-        <label>
-          Макс. разброс курса, %
-          <input id="triangleMaxSpread" type="number" min="0" step="1" value="25">
-          <small>0 — не фильтровать; диапазон используется как предупреждение</small>
-        </label>
-
-        <label>
-          Макс. доля часового объёма, %
-          <input id="triangleMaxUtilization" type="number" min="0" step="1" value="10">
-          <small>0 — использовать обязательный предел 25%</small>
-        </label>
-      </div>
-
-      <fieldset class="triangle-categories">
-        <legend>Разрешённые промежуточные категории</legend>
-        <div id="triangleCategoryOptions"></div>
-      </fieldset>
-
-      <div class="triangle-note">
-        Рабочий курс рассчитывается по отношению суммарных объёмов,
-        реально обменянных за завершённый час. Минимальный и максимальный ratios
-        больше не используются как цена сделки: они показывают только ширину
-        исторического диапазона. На каждом шаге результат округляется вниз до
-        целого предмета, а маршрут ограничивается часовым объёмом.
-      </div>
-
-      <div class="triangle-metrics">
-        <div class="metric-card">
-          <span>Рынков использовано</span>
-          <strong id="triangleMarketCount">—</strong>
-        </div>
-        <div class="metric-card">
-          <span>Активов в графе</span>
-          <strong id="triangleCurrencyCount">—</strong>
-        </div>
-        <div class="metric-card">
-          <span>Найдено цепочек</span>
-          <strong id="triangleCycleCount">—</strong>
-        </div>
-        <div class="metric-card">
-          <span>Час данных GGG</span>
-          <strong id="triangleHour">—</strong>
-        </div>
-      </div>
-
-      <div id="triangleCategorySummary" class="triangle-category-summary"></div>
-
-      <details id="triangleDiagnostics" class="triangle-diagnostics" open>
-        <summary>Диагностика поиска</summary>
-
-        <div class="triangle-diagnostic-metrics">
-          <div>
-            <span>Полных маршрутов проверено</span>
-            <strong id="triangleCheckedRoutes">—</strong>
-          </div>
-          <div>
-            <span>Технически исполнимо</span>
-            <strong id="triangleExecutableRoutes">—</strong>
-          </div>
-          <div>
-            <span>Отброшено</span>
-            <strong id="triangleRejectedRoutes">—</strong>
-          </div>
-          <div>
-            <span>Принято</span>
-            <strong id="triangleAcceptedRoutes">—</strong>
-          </div>
-        </div>
-
-        <p class="triangle-diagnostic-help">
-          Каждый полный маршрут учитывается один раз — по первой причине,
-          из-за которой он был отклонён.
-        </p>
-
-        <div id="triangleRejectReasons" class="triangle-reject-reasons"></div>
-        <div id="triangleNearestRoutes" class="triangle-nearest-routes"></div>
-      </details>
-
-      <div id="triangleStatus" class="triangle-status" aria-live="polite">
-        Подготовка модуля…
-      </div>
-      <div id="triangleResults" class="triangle-results"></div>
-    </section>
-  `;
+function formatPercent(value, digits = 2) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? `${formatNumber(number, digits)}%`
+    : "—";
 }
 
 function insertPanel() {
   if (document.querySelector("#trianglePanel")) return;
+  const notice = document.querySelector("main .notice");
+  if (!notice) return;
 
-  const template = document.createElement("template");
-  template.innerHTML = panelMarkup().trim();
-  const panel = template.content.firstElementChild;
-  const notice = document.querySelector("main > .notice, .notice");
-  const main = document.querySelector("main");
+  const panel = document.createElement("section");
+  panel.id = "trianglePanel";
+  panel.className = "panel triangle-panel";
+  panel.innerHTML = `
+    <div class="triangle-heading">
+      <div>
+        <p class="eyebrow">ГАРАНТИРОВАННЫЕ ПРЕОБРАЗОВАНИЯ</p>
+        <h2>Многошаговые цепочки</h2>
+        <p class="triangle-intro">
+          Поиск маршрутов длиной до пяти шагов: покупка за Chaos,
+          одно или несколько фиксированных преобразований и продажа результата.
+          Чистые рыночные циклы по историческим курсам GGG больше не используются.
+        </p>
+      </div>
+      <button id="triangleRefresh" class="primary-button" type="button">
+        Пересчитать цепочки
+      </button>
+    </div>
 
-  if (notice?.parentNode) {
-    notice.parentNode.insertBefore(panel, notice);
-  } else if (main) {
-    main.append(panel);
-  } else {
-    document.body.append(panel);
-  }
+    <div class="triangle-controls">
+      <label>
+        Бюджет, Chaos
+        <input id="triangleBudget" type="number" min="0" step="10" value="100">
+      </label>
+      <label>
+        Мин. прибыль, Chaos
+        <input id="triangleMinProfit" type="number" min="0" step="0.1" value="1">
+      </label>
+      <label>
+        Мин. ROI, %
+        <input id="triangleMinRoi" type="number" min="0" step="1" value="5">
+      </label>
+      <label>
+        Максимальная длина
+        <select id="triangleMaxSteps">
+          <option value="3">3 шага</option>
+          <option value="4">4 шага</option>
+          <option value="5" selected>5 шагов</option>
+        </select>
+        <small>Покупка и продажа тоже считаются шагами</small>
+      </label>
+      <label>
+        Наценка покупки, %
+        <input id="triangleBuyPremium" type="number" min="0" max="100" step="1" value="5">
+      </label>
+      <label>
+        Скидка продажи, %
+        <input id="triangleSellDiscount" type="number" min="0" max="100" step="1" value="10">
+      </label>
+      <label>
+        Макс. расхождение источников, %
+        <input id="triangleMaxDiscrepancy" type="number" min="0" max="100" step="1" value="15">
+        <small>0 — не фильтровать</small>
+      </label>
+      <label>
+        Макс. доля объёма GGG, %
+        <input id="triangleMaxUtilization" type="number" min="0" max="25" step="1" value="25">
+        <small>Жёсткий предел — ${HARD_MAX_HOURLY_VOLUME_PERCENT}%</small>
+      </label>
+    </div>
+
+    <fieldset class="triangle-categories">
+      <legend>Разрешённые преобразования</legend>
+      <div id="triangleCategoryOptions"></div>
+      <div class="triangle-category-summary" id="triangleCategorySummary">
+        Ожидание рыночных данных…
+      </div>
+    </fieldset>
+
+    <div class="triangle-chain-flags">
+      <label class="triangle-category-option">
+        <input id="triangleUseSecondSource" type="checkbox" checked>
+        <span>Консервативно по poe.ninja + poe.watch</span>
+      </label>
+      <label class="triangle-category-option">
+        <input id="triangleRequireConfirmed" type="checkbox">
+        <span>Только две подтверждённые цены</span>
+      </label>
+      <label class="triangle-category-option">
+        <input id="triangleRequireLiquidity" type="checkbox">
+        <span>Требовать рынки GGG для входа и выхода</span>
+      </label>
+    </div>
+
+    <div class="triangle-note">
+      Одиночные улучшения масел, эссенций и обычная сдача комплекта карт
+      намеренно исключены: они уже показаны в основной таблице. Здесь остаются
+      обмены торговцев и новые цепочки с двумя-тремя фиксированными шагами.
+    </div>
+
+    <div class="triangle-metrics">
+      <article class="metric-card">
+        <span>Фиксированных переходов</span>
+        <strong id="triangleMarketCount">—</strong>
+      </article>
+      <article class="metric-card">
+        <span>Маршрутов проверено</span>
+        <strong id="triangleCurrencyCount">—</strong>
+      </article>
+      <article class="metric-card">
+        <span>Выгодных цепочек</span>
+        <strong id="triangleCycleCount">—</strong>
+      </article>
+      <article class="metric-card">
+        <span>Лучшая прибыль</span>
+        <strong id="triangleHour">—</strong>
+      </article>
+    </div>
+
+    <details id="triangleDiagnostics" class="triangle-diagnostics" open>
+      <summary>Диагностика поиска</summary>
+      <div class="triangle-diagnostic-metrics">
+        <div>
+          <span>Сгенерировано маршрутов</span>
+          <strong id="triangleCheckedRoutes">—</strong>
+        </div>
+        <div>
+          <span>Рассчитано по бюджету</span>
+          <strong id="triangleExecutableRoutes">—</strong>
+        </div>
+        <div>
+          <span>Отклонено</span>
+          <strong id="triangleRejectedRoutes">—</strong>
+        </div>
+        <div>
+          <span>Принято</span>
+          <strong id="triangleAcceptedRoutes">—</strong>
+        </div>
+      </div>
+      <p class="triangle-diagnostic-help">
+        Каждый маршрут получает одну первую причину отказа. Часовые данные GGG
+        используются только для оценки объёма, но не для расчёта цены.
+      </p>
+      <div id="triangleRejectReasons" class="triangle-reject-reasons"></div>
+      <div id="triangleNearestRoutes" class="triangle-nearest-routes"></div>
+    </details>
+
+    <p id="triangleStatus" class="triangle-status" aria-live="polite">
+      Ожидание загрузки цен основного сканера…
+    </p>
+    <div id="triangleResults" class="triangle-results"></div>
+  `;
+  notice.before(panel);
 }
 
 function elements() {
   return {
-    league: document.querySelector("#leagueInput"),
-    mainBudget: document.querySelector("#budget"),
-    mainMinProfit: document.querySelector("#minProfit"),
-    mainMinRoi: document.querySelector("#minRoi"),
-    globalRefresh: document.querySelector("#refreshButton"),
-    start: document.querySelector("#triangleStart"),
+    panel: document.querySelector("#trianglePanel"),
     budget: document.querySelector("#triangleBudget"),
     minProfit: document.querySelector("#triangleMinProfit"),
     minRoi: document.querySelector("#triangleMinRoi"),
-    mode: document.querySelector("#triangleMode"),
-    safety: document.querySelector("#triangleSafety"),
-    maxSpread: document.querySelector("#triangleMaxSpread"),
+    maxSteps: document.querySelector("#triangleMaxSteps"),
+    buyPremium: document.querySelector("#triangleBuyPremium"),
+    sellDiscount: document.querySelector("#triangleSellDiscount"),
+    maxDiscrepancy: document.querySelector("#triangleMaxDiscrepancy"),
     maxUtilization: document.querySelector("#triangleMaxUtilization"),
+    useSecondSource: document.querySelector("#triangleUseSecondSource"),
+    requireConfirmed: document.querySelector("#triangleRequireConfirmed"),
+    requireLiquidity: document.querySelector("#triangleRequireLiquidity"),
     categoryOptions: document.querySelector("#triangleCategoryOptions"),
     categorySummary: document.querySelector("#triangleCategorySummary"),
-    checkedRoutes: document.querySelector("#triangleCheckedRoutes"),
-    executableRoutes: document.querySelector("#triangleExecutableRoutes"),
+    refresh: document.querySelector("#triangleRefresh"),
+    status: document.querySelector("#triangleStatus"),
+    results: document.querySelector("#triangleResults"),
+    fixedCount: document.querySelector("#triangleMarketCount"),
+    checkedCount: document.querySelector("#triangleCurrencyCount"),
+    acceptedCount: document.querySelector("#triangleCycleCount"),
+    bestProfit: document.querySelector("#triangleHour"),
+    generatedRoutes: document.querySelector("#triangleCheckedRoutes"),
+    evaluatedRoutes: document.querySelector("#triangleExecutableRoutes"),
     rejectedRoutes: document.querySelector("#triangleRejectedRoutes"),
     acceptedRoutes: document.querySelector("#triangleAcceptedRoutes"),
     rejectReasons: document.querySelector("#triangleRejectReasons"),
     nearestRoutes: document.querySelector("#triangleNearestRoutes"),
-    refresh: document.querySelector("#triangleRefresh"),
-    status: document.querySelector("#triangleStatus"),
-    results: document.querySelector("#triangleResults"),
-    marketCount: document.querySelector("#triangleMarketCount"),
-    currencyCount: document.querySelector("#triangleCurrencyCount"),
-    cycleCount: document.querySelector("#triangleCycleCount"),
-    hour: document.querySelector("#triangleHour"),
+    mainBudget: document.querySelector("#budget"),
+    mainMinProfit: document.querySelector("#minProfit"),
+    mainMinRoi: document.querySelector("#minRoi"),
+    mainBuyPremium: document.querySelector("#buyPremium"),
+    mainSellDiscount: document.querySelector("#sellDiscount"),
+    mainMaxDiscrepancy: document.querySelector("#maxDiscrepancy"),
+    mainUseSecondSource: document.querySelector("#useSecondSource"),
   };
 }
 
-function populateCategoryOptions() {
+function populateTypeOptions() {
   const ui = elements();
   if (!ui.categoryOptions) return;
-
-  ui.categoryOptions.innerHTML = supportedIntermediateCategories()
-    .map(
-      (category) => `
-        <label class="triangle-category-option">
-          <input
-            type="checkbox"
-            name="triangleCategory"
-            value="${escapeHtml(category.key)}"
-            checked
-          >
-          <span>${escapeHtml(category.name)}</span>
-        </label>
-      `,
-    )
-    .join("");
+  ui.categoryOptions.innerHTML = TYPE_OPTIONS.map(
+    (option) => `
+      <label class="triangle-category-option" title="${escapeHtml(option.description)}">
+        <input
+          type="checkbox"
+          name="triangleCategory"
+          value="${escapeHtml(option.key)}"
+          checked
+        >
+        <span>${escapeHtml(option.name)}</span>
+      </label>
+    `,
+  ).join("");
 }
 
-function selectedCategories() {
+function selectedTypes() {
   return [
-    ...document.querySelectorAll(
-      'input[name="triangleCategory"]:checked',
-    ),
-  ].map((element) => element.value);
+    ...document.querySelectorAll('input[name="triangleCategory"]:checked'),
+  ].map((input) => input.value);
 }
 
 function readSettings() {
   const ui = elements();
-
   return {
-    startCurrency: ui.start?.value || "chaos-orb",
-    budget: Math.max(0.01, numberValue(ui.budget, 100)),
-    minProfit: Math.max(0, numberValue(ui.minProfit, 1)),
-    minRoi: Math.max(0, numberValue(ui.minRoi, 0.5)),
-    mode: "average",
-    safetyPercent: Math.max(0, numberValue(ui.safety, 1)),
-    maxSpread: Math.max(0, numberValue(ui.maxSpread, 25)),
-    maxVolumeUtilization: Math.max(
-      0,
-      numberValue(ui.maxUtilization, 10),
-    ),
-    allowedIntermediateCategories: selectedCategories(),
+    budget: Math.max(0, numberInput(ui.budget, 0)),
+    minProfit: Math.max(0, numberInput(ui.minProfit, 0)),
+    minRoi: Math.max(0, numberInput(ui.minRoi, 0)),
+    maxTotalSteps: Math.max(3, Math.min(5, numberInput(ui.maxSteps, 5))),
+    buyPremium: Math.max(0, numberInput(ui.buyPremium, 0)),
+    sellDiscount: Math.max(0, numberInput(ui.sellDiscount, 0)),
+    maxDiscrepancy: Math.max(0, numberInput(ui.maxDiscrepancy, 0)),
+    maxCxUtilization: Math.max(0, numberInput(ui.maxUtilization, 25)),
+    useSecondSource: Boolean(ui.useSecondSource?.checked),
+    requireConfirmed: Boolean(ui.requireConfirmed?.checked),
+    requireGggLiquidity: Boolean(ui.requireLiquidity?.checked),
+    enabledTypes: selectedTypes(),
   };
 }
 
@@ -301,472 +307,327 @@ function saveSettings() {
 
 function loadSettings() {
   const ui = elements();
-
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null");
     if (!saved || typeof saved !== "object") return;
-
     const mapping = {
-      startCurrency: ui.start,
       budget: ui.budget,
       minProfit: ui.minProfit,
       minRoi: ui.minRoi,
-      mode: ui.mode,
-      safetyPercent: ui.safety,
-      maxSpread: ui.maxSpread,
-      maxVolumeUtilization: ui.maxUtilization,
+      maxTotalSteps: ui.maxSteps,
+      buyPremium: ui.buyPremium,
+      sellDiscount: ui.sellDiscount,
+      maxDiscrepancy: ui.maxDiscrepancy,
+      maxCxUtilization: ui.maxUtilization,
     };
-
     for (const [key, element] of Object.entries(mapping)) {
-      if (element && saved[key] !== undefined) {
-        element.value = String(saved[key]);
-      }
+      if (element && saved[key] !== undefined) element.value = String(saved[key]);
     }
-
-    if (Array.isArray(saved.allowedIntermediateCategories)) {
-      const allowed = new Set(saved.allowedIntermediateCategories);
-
-      for (const checkbox of document.querySelectorAll(
-        'input[name="triangleCategory"]',
-      )) {
-        checkbox.checked = allowed.has(checkbox.value);
+    if (ui.useSecondSource && saved.useSecondSource !== undefined) {
+      ui.useSecondSource.checked = Boolean(saved.useSecondSource);
+    }
+    if (ui.requireConfirmed && saved.requireConfirmed !== undefined) {
+      ui.requireConfirmed.checked = Boolean(saved.requireConfirmed);
+    }
+    if (ui.requireLiquidity && saved.requireGggLiquidity !== undefined) {
+      ui.requireLiquidity.checked = Boolean(saved.requireGggLiquidity);
+    }
+    if (Array.isArray(saved.enabledTypes)) {
+      for (const input of document.querySelectorAll('input[name="triangleCategory"]')) {
+        input.checked = saved.enabledTypes.includes(input.value);
       }
     }
   } catch (error) {
-    console.warn("Не удалось загрузить настройки цепочек:", error);
+    console.warn("Не удалось прочитать настройки цепочек:", error);
   }
 }
 
-function populateCurrencySelect(availableKeys = new Set()) {
+function syncDefaultsFromMainForm() {
   const ui = elements();
-  if (!ui.start) return;
-
-  const previous = ui.start.value;
-  const currencies = supportedCurrencies().filter(
-    (currency) => !availableKeys.size || availableKeys.has(currency.key),
-  );
-
-  ui.start.innerHTML = currencies
-    .map(
-      (currency) =>
-        `<option value="${escapeHtml(currency.key)}">${escapeHtml(currency.name)}</option>`,
-    )
-    .join("");
-
-  if (currencies.some((currency) => currency.key === previous)) {
-    ui.start.value = previous;
-  } else if (currencies.some((currency) => currency.key === "chaos-orb")) {
-    ui.start.value = "chaos-orb";
+  const mappings = [
+    [ui.mainBudget, ui.budget],
+    [ui.mainMinProfit, ui.minProfit],
+    [ui.mainMinRoi, ui.minRoi],
+    [ui.mainBuyPremium, ui.buyPremium],
+    [ui.mainSellDiscount, ui.sellDiscount],
+    [ui.mainMaxDiscrepancy, ui.maxDiscrepancy],
+  ];
+  for (const [source, target] of mappings) {
+    if (source && target) target.value = source.value;
+  }
+  if (ui.mainUseSecondSource && ui.useSecondSource) {
+    ui.useSecondSource.checked = ui.mainUseSecondSource.checked;
   }
 }
 
-function routeText(cycle) {
-  return cycle.currencies.map((currency) => currency.short).join(" → ");
+function routeText(route) {
+  const names = [route.inputItem.name];
+  for (const edge of route.path) names.push(edge.to.name);
+  return ["Chaos", ...names, "Chaos"].join(" → ");
 }
 
-function categoryLabel(category) {
-  if (category === "essence") return "эссенция";
-  if (category === "scarab") return "скарабей";
-  return "валюта";
+function routeRisk(route) {
+  if (route.confidence >= 80) return { key: "low", label: "высокое доверие" };
+  if (route.confidence >= 55) return { key: "medium", label: "среднее доверие" };
+  return { key: "high", label: "низкое доверие" };
 }
 
-function riskLabel(risk) {
-  if (risk === "high") return "высокий";
-  if (risk === "medium") return "средний";
-  return "низкий";
-}
+function renderRoute(route, index) {
+  const risk = routeRisk(route);
+  const fixedSteps = route.path.map((edge, edgeIndex) => {
+    const inputAmount = route.amounts[edgeIndex];
+    const outputAmount = route.amounts[edgeIndex + 1];
+    return `
+      <li>
+        <div>
+          <strong>
+            ${edgeIndex + 2}. ${escapeHtml(routeTypeLabel(edge.type))}
+            <em>${escapeHtml(edge.type)}</em>
+          </strong>
+          <span>
+            ${formatNumber(inputAmount, 0)} ${escapeHtml(edge.from.name)}
+            → ${formatNumber(outputAmount, 0)} ${escapeHtml(edge.to.name)}
+          </span>
+        </div>
+        <small>${escapeHtml(edge.details || edge.label)}</small>
+      </li>
+    `;
+  }).join("");
 
-function renderCycle(cycle, index) {
-  const steps = cycle.edges
-    .map(
-      (edge, stepIndex) => `
-        <li>
-          <div>
-            <strong>
-              ${stepIndex + 1}. ${escapeHtml(edge.from.short)}
-              → ${escapeHtml(edge.to.short)}
-              <em>${escapeHtml(categoryLabel(edge.to.category))}</em>
-            </strong>
-            <span>×${formatNumber(edge.safeRate, 6)}</span>
-          </div>
-          <small>
-            Доступно ${formatNumber(edge.availableInput, 0)}
-            ${escapeHtml(edge.from.short)}; обменено
-            ${formatNumber(edge.requiredInput, 0)}
-            ${escapeHtml(edge.from.short)};
-            получено ${formatNumber(edge.resultingAmount, 0)}
-            ${escapeHtml(edge.to.short)};
-            остаток ${formatNumber(edge.leftoverInput, 0)}
-            ${escapeHtml(edge.from.short)};
-            средний курс часа ×${formatNumber(edge.chosenRate, 6)};
-            объём входа/выхода
-            ${formatNumber(edge.volumeIn, 0)}/${formatNumber(edge.volumeOut, 0)};
-            используется ${formatPercent(edge.inputUtilizationPercent)}
-            входа и ${formatPercent(edge.outputUtilizationPercent)} выхода;
-            исторический диапазон ${formatPercent(edge.spreadPercent)}
-          </small>
-        </li>
-      `,
-    )
-    .join("");
+  const volumeText = Number.isFinite(route.maxCxUtilization)
+    ? `макс. доля прошлого часового объёма ${formatPercent(route.maxCxUtilization)}`
+    : "объём GGG не подтверждён для обеих сторон";
+  const sourceText = route.bothSources
+    ? `две цены, расхождение ${formatPercent(route.maxDiscrepancy)}`
+    : "один из краёв рассчитан только по poe.ninja";
 
   return `
     <article class="triangle-card">
       <div class="triangle-card-head">
         <div>
           <span class="triangle-rank">#${index + 1}</span>
-          <h3>${escapeHtml(routeText(cycle))}</h3>
+          <h3>${escapeHtml(routeText(route))}</h3>
           <div class="triangle-route-categories">
-            ${cycle.intermediateCategories
-              .map(
-                (category) =>
-                  `<span>${escapeHtml(categoryLabel(category))}</span>`,
-              )
+            ${route.types
+              .map((type) => `<span>${escapeHtml(routeTypeLabel(type))}</span>`)
               .join("")}
+            <span>${route.totalSteps} шаг.</span>
           </div>
         </div>
-        <span class="triangle-risk triangle-risk-${cycle.risk}">
-          риск: ${riskLabel(cycle.risk)}
+        <span class="triangle-risk triangle-risk-${risk.key}">
+          ${escapeHtml(risk.label)} · ${route.confidence}/100
         </span>
       </div>
 
       <div class="triangle-card-metrics">
         <div>
-          <span>Старт</span>
-          <strong>${formatNumber(cycle.budget, 0)} ${escapeHtml(cycle.startCurrency.short)}</strong>
+          <span>Вложено</span>
+          <strong>${formatNumber(route.totalCost)} Chaos</strong>
         </div>
         <div>
-          <span>Результат с запасом</span>
-          <strong>${formatNumber(cycle.safeResult, 0)} ${escapeHtml(cycle.startCurrency.short)}</strong>
+          <span>Итог с остатком</span>
+          <strong>${formatNumber(route.finalChaos)} Chaos</strong>
         </div>
         <div>
-          <span>Расчётная прибыль</span>
-          <strong class="${cycle.safeProfit > 0 ? "triangle-positive" : "triangle-negative"}">
-            ${cycle.safeProfit > 0 ? "+" : ""}${formatNumber(cycle.safeProfit, 0)}
-            ${escapeHtml(cycle.startCurrency.short)}
-          </strong>
+          <span>Прибыль</span>
+          <strong class="triangle-positive">+${formatNumber(route.profit)} Chaos</strong>
         </div>
         <div>
           <span>ROI</span>
-          <strong>${formatPercent(cycle.roi)}</strong>
+          <strong>${formatPercent(route.roi)}</strong>
         </div>
       </div>
 
       <div class="triangle-secondary">
-        Валовая прибыль: ${cycle.grossProfit > 0 ? "+" : ""}${formatNumber(cycle.grossProfit)}
-        ${escapeHtml(cycle.startCurrency.short)} ·
-        максимальный разброс: ${formatPercent(cycle.maxSpread)} ·
-        максимальная доля часового объёма: ${formatPercent(cycle.maxUtilization)}
+        Выполнений цепочки: ${formatNumber(route.operations, 0)} ·
+        остаток бюджета: ${formatNumber(route.leftoverChaos)} Chaos ·
+        ${escapeHtml(sourceText)} · ${escapeHtml(volumeText)}.
       </div>
 
       <details>
-        <summary>Показать все шаги</summary>
-        <ol class="triangle-steps">${steps}</ol>
+        <summary>Показать точные действия</summary>
+        <ol class="triangle-steps">
+          <li>
+            <div>
+              <strong>1. Купить исходный предмет</strong>
+              <span>
+                ${formatNumber(route.inputQuantity, 0)} ${escapeHtml(route.inputItem.name)}
+                за ${formatNumber(route.totalCost)} Chaos
+              </span>
+            </div>
+            <small>
+              Консервативная цена покупки: ${formatNumber(route.inputUnitPrice, 6)} Chaos/шт.,
+              включая наценку из настроек при расчёте общей стоимости.
+            </small>
+          </li>
+          ${fixedSteps}
+          <li>
+            <div>
+              <strong>${route.totalSteps}. Продать результат</strong>
+              <span>
+                ${formatNumber(route.outputQuantity, 0)} ${escapeHtml(route.outputItem.name)}
+                за ${formatNumber(route.totalSale)} Chaos
+              </span>
+            </div>
+            <small>
+              Консервативная цена продажи: ${formatNumber(route.outputUnitPrice, 6)} Chaos/шт.,
+              итог уже учитывает скидку быстрой продажи.
+            </small>
+          </li>
+        </ol>
       </details>
     </article>
   `;
 }
 
-const REJECTION_LABELS = {
-  spread: "Превышен выбранный предел исторического диапазона",
-  wholeLot: "Нельзя выполнить следующий целый лот",
-  liquidity: "Превышена допустимая доля часового объёма",
-  noProfit: "Результат не превышает стартовый бюджет",
-  minProfit: "Прибыль ниже заданного минимума",
-  minRoi: "ROI ниже заданного минимума",
-};
+const REJECTION_LABELS = Object.freeze({
+  duplicateSingleStep: "Одиночная операция уже есть в основной таблице",
+  missingPrice: "Нет цены входного или выходного предмета",
+  integerBatch: "Не удалось собрать целую партию без дробных предметов",
+  budget: "Бюджета не хватает даже на одну полную цепочку",
+  unconfirmed: "Нет двух подтверждённых источников цены",
+  discrepancy: "Слишком большое расхождение poe.ninja и poe.watch",
+  missingLiquidity: "Нет рынков GGG для входа и выхода",
+  liquidity: "Превышена допустимая доля прошлого часового объёма",
+  noProfit: "Цепочка убыточна после запасов",
+  minProfit: "Прибыль ниже выбранного минимума",
+  minRoi: "ROI ниже выбранного минимума",
+});
 
-function nearestReasonText(cycle) {
-  if (cycle.rejectionReason === "noProfit") {
-    return cycle.gapToBreakEven > 0
-      ? `До безубыточности не хватает ${formatNumber(
-          cycle.gapToBreakEven,
-          0,
-        )} ${escapeHtml(cycle.startCurrency.short)}`
-      : "Маршрут вышел ровно в ноль";
+function nearestReason(route) {
+  if (route.rejectionReason === "noProfit") {
+    return `До безубыточности не хватает ${formatNumber(route.gapToBreakEven)} Chaos`;
   }
-
-  if (cycle.rejectionReason === "minProfit") {
-    return `До фильтра прибыли не хватает ${formatNumber(
-      cycle.gapToMinProfit,
-      0,
-    )} ${escapeHtml(cycle.startCurrency.short)}`;
+  if (route.rejectionReason === "minProfit") {
+    return `До фильтра прибыли не хватает ${formatNumber(route.gapToMinProfit)} Chaos`;
   }
-
-  return `До фильтра ROI не хватает ${formatNumber(
-    cycle.gapToMinRoi,
-    2,
-  )} п.п.`;
+  return `До фильтра ROI не хватает ${formatNumber(route.gapToMinRoi)} п.п.`;
 }
 
-function renderSearchDiagnostics(analysis) {
+function renderDiagnostics(analysis) {
   const ui = elements();
   const diagnostics = analysis?.diagnostics;
+  if (!diagnostics) return;
 
-  if (!diagnostics) {
-    for (const element of [
-      ui.checkedRoutes,
-      ui.executableRoutes,
-      ui.rejectedRoutes,
-      ui.acceptedRoutes,
-    ]) {
-      if (element) element.textContent = "—";
-    }
+  ui.generatedRoutes.textContent = diagnostics.generatedRoutes.toLocaleString("ru-RU");
+  ui.evaluatedRoutes.textContent = diagnostics.evaluatedRoutes.toLocaleString("ru-RU");
+  ui.rejectedRoutes.textContent = diagnostics.rejectedTotal.toLocaleString("ru-RU");
+  ui.acceptedRoutes.textContent = diagnostics.accepted.toLocaleString("ru-RU");
 
-    if (ui.rejectReasons) ui.rejectReasons.innerHTML = "";
-    if (ui.nearestRoutes) ui.nearestRoutes.innerHTML = "";
-    return;
-  }
-
-  ui.checkedRoutes.textContent =
-    diagnostics.potentialRoutes.toLocaleString("ru-RU");
-  ui.executableRoutes.textContent =
-    diagnostics.technicallyExecutable.toLocaleString("ru-RU");
-  ui.rejectedRoutes.textContent =
-    diagnostics.rejectedTotal.toLocaleString("ru-RU");
-  ui.acceptedRoutes.textContent =
-    diagnostics.accepted.toLocaleString("ru-RU");
-
-  const reasonEntries = Object.entries(
-    diagnostics.rejected,
-  ).filter(([, count]) => count > 0);
-
-  ui.rejectReasons.innerHTML = reasonEntries.length
+  const reasons = Object.entries(diagnostics.rejected).filter(([, count]) => count > 0);
+  ui.rejectReasons.innerHTML = reasons.length
     ? `
       <h4>Почему маршруты отклонены</h4>
       <div class="triangle-reason-list">
-        ${reasonEntries
-          .map(
-            ([reason, count]) => `
-              <div class="triangle-reason-row">
-                <span>${escapeHtml(
-                  REJECTION_LABELS[reason] ?? reason,
-                )}</span>
-                <strong>${count.toLocaleString("ru-RU")}</strong>
-              </div>
-            `,
-          )
-          .join("")}
+        ${reasons.map(([reason, count]) => `
+          <div class="triangle-reason-row">
+            <span>${escapeHtml(REJECTION_LABELS[reason] ?? reason)}</span>
+            <strong>${count.toLocaleString("ru-RU")}</strong>
+          </div>
+        `).join("")}
       </div>
     `
-    : `
-      <div class="triangle-diagnostic-empty">
-        Отклонённых полных маршрутов нет.
-      </div>
-    `;
+    : `<div class="triangle-diagnostic-empty">Отклонённых маршрутов нет.</div>`;
 
-  const nearest = Array.isArray(analysis.nearest)
-    ? analysis.nearest.slice(0, 3)
-    : [];
-
-  if (!nearest.length) {
-    ui.nearestRoutes.innerHTML = `
-      <div class="triangle-nearest-head">
-        <h4>Ближайшие к прибыли</h4>
-      </div>
-      <div class="triangle-diagnostic-empty">
-        Нет технически исполнимых отклонённых маршрутов для сравнения.
-      </div>
-    `;
-    return;
-  }
-
+  const nearest = analysis.nearest.slice(0, 3);
   ui.nearestRoutes.innerHTML = `
     <div class="triangle-nearest-head">
-      <h4>Ближайшие к прибыли</h4>
-      <span>Не являются торговыми сигналами</span>
+      <h4>Ближайшие к условиям</h4>
+      <span>Не являются выгодными сигналами</span>
     </div>
-
-    <div class="triangle-nearest-list">
-      ${nearest
-        .map(
-          (cycle, index) => `
-            <article class="triangle-nearest-card">
-              <div>
-                <span class="triangle-rank">#${index + 1}</span>
-                <strong>${escapeHtml(routeText(cycle))}</strong>
-              </div>
-
-              <div class="triangle-nearest-values">
-                <span>
-                  Итог:
-                  <b>${formatNumber(cycle.safeResult, 0)}
-                  ${escapeHtml(cycle.startCurrency.short)}</b>
-                </span>
-                <span>
-                  Прибыль:
-                  <b class="${
-                    cycle.safeProfit > 0
-                      ? "triangle-positive"
-                      : "triangle-negative"
-                  }">
-                    ${cycle.safeProfit > 0 ? "+" : ""}
-                    ${formatNumber(cycle.safeProfit, 0)}
-                  </b>
-                </span>
-                <span>ROI: <b>${formatPercent(cycle.roi)}</b></span>
-              </div>
-
-              <small>${nearestReasonText(cycle)}</small>
-            </article>
-          `,
-        )
-        .join("")}
-    </div>
+    ${nearest.length ? `
+      <div class="triangle-nearest-list">
+        ${nearest.map((route, index) => `
+          <article class="triangle-nearest-card">
+            <div>
+              <span class="triangle-rank">#${index + 1}</span>
+              <strong>${escapeHtml(routeText(route))}</strong>
+            </div>
+            <div class="triangle-nearest-values">
+              <span>Прибыль: <b>${formatNumber(route.profit)} Chaos</b></span>
+              <span>ROI: <b>${formatPercent(route.roi)}</b></span>
+            </div>
+            <small>${escapeHtml(nearestReason(route))}</small>
+          </article>
+        `).join("")}
+      </div>
+    ` : `
+      <div class="triangle-diagnostic-empty">
+        Нет рассчитанных маршрутов, близких к заданным фильтрам.
+      </div>
+    `}
   `;
 }
 
 function render() {
   const ui = elements();
-
-  if (!state.graph || !state.payload) {
+  if (!state.marketData) {
+    ui.status.textContent = "Ожидание загрузки цен основного сканера…";
     ui.results.innerHTML = "";
     return;
   }
 
-  const settings = readSettings();
-  state.analysis = analyzeTriangularCycles(
-    state.graph.edges,
-    settings,
+  const currentSettings = readSettings();
+  state.analysis = analyzeGuaranteedChains(
+    state.marketData.itemsByCategory,
+    state.marketData.cardPairs,
+    currentSettings,
   );
-  state.cycles = state.analysis.cycles;
-  renderSearchDiagnostics(state.analysis);
 
-  ui.marketCount.textContent =
-    state.graph.diagnostics.usableMarkets.toLocaleString("ru-RU");
+  const { analysis } = state;
+  const best = analysis.routes[0];
+  ui.fixedCount.textContent = analysis.diagnostics.fixedEdges.toLocaleString("ru-RU");
+  ui.checkedCount.textContent = analysis.diagnostics.evaluatedRoutes.toLocaleString("ru-RU");
+  ui.acceptedCount.textContent = analysis.routes.length.toLocaleString("ru-RU");
+  ui.bestProfit.textContent = best ? `+${formatNumber(best.profit)} Chaos` : "—";
 
-  const currencyKeys = new Set();
-  for (const edge of state.graph.edges) {
-    currencyKeys.add(edge.from.key);
-    currencyKeys.add(edge.to.key);
-  }
+  const counts = analysis.conversionCounts;
+  ui.categorySummary.textContent =
+    `Доступно переходов: торговцы ${counts.vendor ?? 0}, ` +
+    `масла ${counts.oil ?? 0}, эссенции ${counts.essence ?? 0}, ` +
+    `карты ${counts.card ?? 0}.`;
 
-  ui.currencyCount.textContent = currencyKeys.size.toLocaleString("ru-RU");
-  ui.cycleCount.textContent = state.cycles.length.toLocaleString("ru-RU");
+  renderDiagnostics(analysis);
 
-  if (ui.categorySummary) {
-    const counts = state.graph.diagnostics.assetsByCategory ?? {};
-    ui.categorySummary.textContent =
-      `Распознано: валют ${counts.currency ?? 0}, ` +
-      `эссенций ${counts.essence ?? 0}, ` +
-      `скарабеев ${counts.scarab ?? 0}.`;
-  }
-  ui.hour.textContent = formatHour(state.payload?.hour);
-
-  if (!state.cycles.length) {
+  if (!analysis.routes.length) {
     ui.status.textContent =
-      "Исполнимых прибыльных циклов с текущими фильтрами не найдено.";
-
+      `Выгодных многошаговых цепочек в лиге ${state.marketData.league} ` +
+      "с текущими фильтрами не найдено.";
     ui.results.innerHTML = `
       <div class="triangle-empty">
         <strong>Цепочек пока нет</strong>
         <p>
-          Посмотрите блок «Диагностика поиска»: он покажет, сколько
-          маршрутов не прошло проверку целых предметов, ликвидности,
-          пользовательского предела диапазона и прибыльности. Расчёт основан
-          на среднем фактическом курсе завершённого часа и всё равно требует
-          ручной проверки перед обменом.
+          Это нормальный результат: после наценки покупки, скидки продажи,
+          целых партий и ограничения объёма большинство цепочек должно
+          отсеиваться. Причины показаны в диагностике выше.
         </p>
       </div>
     `;
     return;
   }
 
-  const shown = state.cycles.slice(0, 25);
+  const shown = analysis.routes.slice(0, 25);
   ui.status.textContent =
-    `Показано ${shown.length} из ${state.cycles.length} цепочек. ` +
-    "Расчёт: средний фактический курс завершённого часа.";
-
-  ui.results.innerHTML = shown.map(renderCycle).join("");
-}
-
-async function refresh({ silent = false } = {}) {
-  if (state.loading) return;
-  state.loading = true;
-
-  const ui = elements();
-  const league = ui.league?.value?.trim() || "Standard";
-
-  if (!silent) {
-    ui.status.textContent = `Загрузка рынков GGG для лиги ${league}…`;
-  }
-
-  ui.refresh.disabled = true;
-  ui.refresh.textContent = "Загрузка…";
-
-  try {
-    const response = await fetch(
-      `/api/currency-exchange?league=${encodeURIComponent(league)}`,
-      {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      },
-    );
-
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload?.error || `HTTP ${response.status}`);
-    }
-
-    if (!payload?.configured) {
-      throw new Error("Currency Exchange API не настроен.");
-    }
-
-    if (!payload?.available || !Array.isArray(payload?.markets)) {
-      throw new Error(
-        "За доступный завершённый час рынки выбранной лиги не найдены.",
-      );
-    }
-
-    state.payload = payload;
-    state.graph = buildDirectedExchangeEdges(payload.markets);
-
-    const availableKeys = new Set();
-    for (const edge of state.graph.edges) {
-      availableKeys.add(edge.from.key);
-      availableKeys.add(edge.to.key);
-    }
-
-    const previousStart = ui.start.value;
-    populateCurrencySelect(availableKeys);
-
-    if (availableKeys.has(previousStart)) {
-      ui.start.value = previousStart;
-    }
-
-    render();
-  } catch (error) {
-    state.payload = null;
-    state.graph = null;
-    state.cycles = [];
-    state.analysis = null;
-    renderSearchDiagnostics(null);
-
-    ui.marketCount.textContent = "—";
-    ui.currencyCount.textContent = "—";
-    ui.cycleCount.textContent = "—";
-    ui.hour.textContent = "—";
-    ui.status.textContent = `Ошибка: ${error instanceof Error ? error.message : String(error)}`;
-    ui.results.innerHTML = "";
-  } finally {
-    state.loading = false;
-    ui.refresh.disabled = false;
-    ui.refresh.textContent = "Найти цепочки";
-  }
+    `Показано ${shown.length} из ${analysis.routes.length} цепочек для ` +
+    `${state.marketData.league}. Цены взяты из основного сканера; ` +
+    "GGG используется только как проверка прошлого часового объёма.";
+  ui.results.innerHTML = shown.map(renderRoute).join("");
 }
 
 function bindEvents() {
   const ui = elements();
   const controls = [
-    ui.start,
     ui.budget,
     ui.minProfit,
     ui.minRoi,
-    ui.mode,
-    ui.safety,
-    ui.maxSpread,
+    ui.maxSteps,
+    ui.buyPremium,
+    ui.sellDiscount,
+    ui.maxDiscrepancy,
     ui.maxUtilization,
+    ui.useSecondSource,
+    ui.requireConfirmed,
+    ui.requireLiquidity,
     ...document.querySelectorAll('input[name="triangleCategory"]'),
   ].filter(Boolean);
 
@@ -775,8 +636,7 @@ function bindEvents() {
       saveSettings();
       render();
     });
-
-    if (control instanceof HTMLInputElement) {
+    if (control instanceof HTMLInputElement && control.type !== "checkbox") {
       control.addEventListener("input", () => {
         saveSettings();
         render();
@@ -784,51 +644,47 @@ function bindEvents() {
     }
   }
 
-  ui.refresh?.addEventListener("click", () => refresh());
-
-  ui.globalRefresh?.addEventListener("click", () => {
-    window.setTimeout(() => refresh({ silent: true }), 300);
+  ui.refresh?.addEventListener("click", () => {
+    syncDefaultsFromMainForm();
+    saveSettings();
+    render();
   });
 
-  ui.league?.addEventListener("change", () => refresh());
+  const mainControls = [
+    ui.mainBudget,
+    ui.mainMinProfit,
+    ui.mainMinRoi,
+    ui.mainBuyPremium,
+    ui.mainSellDiscount,
+    ui.mainMaxDiscrepancy,
+    ui.mainUseSecondSource,
+  ].filter(Boolean);
 
-  ui.mainBudget?.addEventListener("change", () => {
-    if (ui.budget) {
-      ui.budget.value = ui.mainBudget.value;
+  for (const control of mainControls) {
+    control.addEventListener("change", () => {
+      syncDefaultsFromMainForm();
       saveSettings();
       render();
-    }
+    });
+  }
+
+  window.addEventListener("poe-market-data", (event) => {
+    state.marketData = event.detail;
+    render();
   });
-}
-
-function syncDefaultsFromMainForm() {
-  const ui = elements();
-
-  if (ui.mainBudget && ui.budget) {
-    ui.budget.value = ui.mainBudget.value || "100";
-  }
-
-  if (ui.mainMinProfit && ui.minProfit) {
-    ui.minProfit.value = ui.mainMinProfit.value || "0";
-  }
-
-  if (ui.mainMinRoi && ui.minRoi) {
-    ui.minRoi.value = ui.mainMinRoi.value || "0";
-  }
 }
 
 function init() {
   insertPanel();
-  populateCurrencySelect();
-  populateCategoryOptions();
+  populateTypeOptions();
   syncDefaultsFromMainForm();
   loadSettings();
   bindEvents();
-  refresh();
 
-  window.setInterval(() => {
-    if (!document.hidden) refresh({ silent: true });
-  }, 15 * 60 * 1000);
+  if (window.__POE_MARKET_DATA__) {
+    state.marketData = window.__POE_MARKET_DATA__;
+  }
+  render();
 }
 
 if (document.readyState === "loading") {

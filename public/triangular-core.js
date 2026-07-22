@@ -1,565 +1,47 @@
-const CURRENCIES = [
-  {
-    key: "chaos-orb",
-    name: "Chaos Orb",
-    short: "Chaos",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyRerollRare",
-    aliases: ["chaos", "chaos-orb"],
-  },
-  {
-    key: "divine-orb",
-    name: "Divine Orb",
-    short: "Divine",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyModValues",
-    aliases: ["divine", "divine-orb"],
-  },
-  {
-    key: "exalted-orb",
-    name: "Exalted Orb",
-    short: "Exalted",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyAddModToRare",
-    aliases: ["exalted", "exalted-orb"],
-  },
-  {
-    key: "orb-of-annulment",
-    name: "Orb of Annulment",
-    short: "Annul",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyRemoveMod",
-    aliases: ["annulment", "orb-of-annulment"],
-  },
-  {
-    key: "orb-of-fusing",
-    name: "Orb of Fusing",
-    short: "Fusing",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyRerollSocketLinks",
-    aliases: ["fusing", "orb-of-fusing"],
-  },
-  {
-    key: "orb-of-alteration",
-    name: "Orb of Alteration",
-    short: "Alteration",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyRerollMagic",
-    aliases: ["alteration", "orb-of-alteration"],
-  },
-  {
-    key: "orb-of-alchemy",
-    name: "Orb of Alchemy",
-    short: "Alchemy",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyUpgradeToRare",
-    aliases: ["alchemy", "orb-of-alchemy"],
-  },
-  {
-    key: "orb-of-scouring",
-    name: "Orb of Scouring",
-    short: "Scouring",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyConvertToNormal",
-    aliases: ["scouring", "orb-of-scouring"],
-  },
-  {
-    key: "orb-of-regret",
-    name: "Orb of Regret",
-    short: "Regret",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyPassiveSkillRefund",
-    aliases: ["regret", "orb-of-regret"],
-  },
-  {
-    key: "vaal-orb",
-    name: "Vaal Orb",
-    short: "Vaal",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyVaal",
-    aliases: ["vaal", "vaal-orb"],
-  },
-  {
-    key: "chromatic-orb",
-    name: "Chromatic Orb",
-    short: "Chromatic",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyRerollSocketColours",
-    aliases: ["chromatic", "chromatic-orb"],
-  },
-  {
-    key: "jewellers-orb",
-    name: "Jeweller's Orb",
-    short: "Jeweller",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyRerollSocketNumbers",
-    aliases: ["jeweller", "jewellers-orb", "jeweller's-orb"],
-  },
-  {
-    key: "orb-of-chance",
-    name: "Orb of Chance",
-    short: "Chance",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyUpgradeRandomly",
-    aliases: ["chance", "orb-of-chance"],
-  },
-  {
-    key: "regal-orb",
-    name: "Regal Orb",
-    short: "Regal",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyUpgradeMagicToRare",
-    aliases: ["regal", "regal-orb"],
-  },
-  {
-    key: "blessed-orb",
-    name: "Blessed Orb",
-    short: "Blessed",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyImplicitMod",
-    aliases: ["blessed", "blessed-orb"],
-  },
-  {
-    key: "gemcutters-prism",
-    name: "Gemcutter's Prism",
-    short: "GCP",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyGemQuality",
-    aliases: ["gcp", "gemcutters-prism", "gemcutter's-prism"],
-  },
-  {
-    key: "glassblowers-bauble",
-    name: "Glassblower's Bauble",
-    short: "Bauble",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyFlaskQuality",
-    aliases: ["glassblowers-bauble", "glassblower's-bauble"],
-  },
-  {
-    key: "cartographers-chisel",
-    name: "Cartographer's Chisel",
-    short: "Chisel",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyMapQuality",
-    aliases: ["chisel", "cartographers-chisel", "cartographer's-chisel"],
-  },
-  {
-    key: "orb-of-transmutation",
-    name: "Orb of Transmutation",
-    short: "Transmutation",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyUpgradeToMagic",
-    aliases: ["transmutation", "orb-of-transmutation"],
-  },
-  {
-    key: "orb-of-augmentation",
-    name: "Orb of Augmentation",
-    short: "Augmentation",
-    category: "currency",
-    metadata: "Metadata/Items/Currency/CurrencyAddModToMagic",
-    aliases: ["augmentation", "orb-of-augmentation"],
-  },
-];
+"use strict";
 
+import { ESSENCE_TIERS, OIL_CHAIN } from "./core.js";
 
-const ESSENCE_TIERS = [
-  ["1", "Whispering"],
-  ["2", "Muttering"],
-  ["3", "Weeping"],
-  ["4", "Wailing"],
-  ["5", "Screaming"],
-  ["6", "Shrieking"],
-  ["7", "Deafening"],
-];
+export const HARD_MAX_HOURLY_VOLUME_PERCENT = 25;
 
-const ESSENCE_FAMILIES = [
-  ["Greed", "Greed"],
-  ["Contempt", "Contempt"],
-  ["Hatred", "Hatred"],
-  ["Woe", "Woe"],
-  ["Fear", "Fear"],
-  ["Anger", "Anger"],
-  ["Torment", "Torment"],
-  ["Sorrow", "Sorrow"],
-  ["Rage", "Rage"],
-  ["Suffering", "Suffering"],
-  ["Wrath", "Wrath"],
-  ["Doubt", "Doubt"],
-  ["Loathing", "Loathing"],
-  ["Zeal", "Zeal"],
-  ["Anguish", "Anguish"],
-  ["Spite", "Spite"],
-  ["Scorn", "Scorn"],
-  ["Envy", "Envy"],
-];
-
-const ESSENCES = ESSENCE_FAMILIES.flatMap(([metadataFamily, displayFamily]) =>
-  ESSENCE_TIERS.map(([metadataTier, displayTier]) => ({
-    key: `essence-${displayTier.toLowerCase()}-${displayFamily.toLowerCase()}`,
-    name: `${displayTier} Essence of ${displayFamily}`,
-    short: `${displayTier} ${displayFamily}`,
-    category: "essence",
-    metadata:
-      `Metadata/Items/Currency/CurrencyEssence${metadataFamily}${metadataTier}`,
-    aliases: [],
-  })),
-);
-
-const SPECIAL_ESSENCES = [
-  ["Hysteria", "Essence of Hysteria"],
-  ["Insanity", "Essence of Insanity"],
-  ["Horror", "Essence of Horror"],
-  ["Delirium", "Essence of Delirium"],
-].map(([metadataName, name]) => ({
-  key: `essence-${metadataName.toLowerCase()}`,
-  name,
-  short: name.replace(/^Essence of /, ""),
-  category: "essence",
-  metadata: `Metadata/Items/Currency/CurrencyEssence${metadataName}`,
-  aliases: [],
-}));
-
-// First exact scarab catalogue. Unknown Metadata IDs are intentionally ignored:
-// the interface must never display a guessed or misleading item name.
-const SCARABS = [
-  {
-    key: "abyss-scarab",
-    name: "Abyss Scarab",
-    short: "Abyss Scarab",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabAbyssNew1",
-    aliases: [],
-  },
-  {
-    key: "bestiary-scarab",
-    name: "Bestiary Scarab",
-    short: "Bestiary Scarab",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabBeastsNew1",
-    aliases: [],
-  },
-  {
-    key: "expedition-scarab",
-    name: "Expedition Scarab",
-    short: "Expedition Scarab",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabExpedition1",
-    aliases: [],
-  },
-  {
-    key: "harvest-scarab",
-    name: "Harvest Scarab",
-    short: "Harvest Scarab",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabHarvest1",
-    aliases: [],
-  },
-  {
-    key: "legion-scarab",
-    name: "Legion Scarab",
-    short: "Legion Scarab",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabLegionNew1",
-    aliases: [],
-  },
-  {
-    key: "titanic-scarab",
-    name: "Titanic Scarab",
-    short: "Titanic Scarab",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabUniquesNew1",
-    aliases: [],
-  },
-  {
-    key: "torment-scarab-of-possession",
-    name: "Torment Scarab of Possession",
-    short: "Torment: Possession",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabTormentNew4",
-    aliases: [],
-  },
-  {
-    key: "cartography-scarab-of-singularity",
-    name: "Cartography Scarab of Singularity",
-    short: "Cartography: Singularity",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabMapsNew3",
-    aliases: [],
-  },
-  {
-    key: "cartography-scarab-of-corruption",
-    name: "Cartography Scarab of Corruption",
-    short: "Cartography: Corruption",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabMapsNew4",
-    aliases: [],
-  },
-  {
-    key: "scarab-of-adversaries",
-    name: "Scarab of Adversaries",
-    short: "Scarab: Adversaries",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabMisc2",
-    aliases: [],
-  },
-  {
-    key: "scarab-of-stability",
-    name: "Scarab of Stability",
-    short: "Scarab: Stability",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabMisc5",
-    aliases: [],
-  },
-  {
-    key: "scarab-of-evolution",
-    name: "Scarab of Evolution",
-    short: "Scarab: Evolution",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabMisc7",
-    aliases: [],
-  },
-  {
-    key: "horned-scarab-of-tradition",
-    name: "Horned Scarab of Tradition",
-    short: "Horned: Tradition",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabUber5",
-    aliases: [],
-  },
-  {
-    key: "anarchy-scarab-of-the-exceptional",
-    name: "Anarchy Scarab of the Exceptional",
-    short: "Anarchy: Exceptional",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabAnarchy4",
-    aliases: [],
-  },
-  {
-    key: "ritual-scarab-of-abundance",
-    name: "Ritual Scarab of Abundance",
-    short: "Ritual: Abundance",
-    category: "scarab",
-    metadata: "Metadata/Items/Scarabs/ScarabRitual3",
-    aliases: [],
-  },
-];
-
-const ALL_ASSETS = [
-  ...CURRENCIES,
-  ...ESSENCES,
-  ...SPECIAL_ESSENCES,
-  ...SCARABS,
-];
-
-const INTERMEDIATE_CATEGORIES = Object.freeze([
-  { key: "currency", name: "Валюта" },
-  { key: "essence", name: "Эссенции" },
-  { key: "scarab", name: "Скарабеи" },
+export const VENDOR_CURRENCY_CONVERSIONS = Object.freeze([
+  { inputName: "Scroll of Wisdom", outputName: "Portal Scroll", inputQuantity: 3, outputQuantity: 1, location: "Act 1+" },
+  { inputName: "Portal Scroll", outputName: "Orb of Transmutation", inputQuantity: 7, outputQuantity: 1, location: "Act 1+" },
+  { inputName: "Orb of Transmutation", outputName: "Orb of Augmentation", inputQuantity: 4, outputQuantity: 1, location: "Act 1+" },
+  { inputName: "Orb of Augmentation", outputName: "Orb of Alteration", inputQuantity: 4, outputQuantity: 1, location: "Act 1+" },
+  { inputName: "Orb of Alteration", outputName: "Jeweller's Orb", inputQuantity: 2, outputQuantity: 1, location: "Act 2+" },
+  { inputName: "Jeweller's Orb", outputName: "Chromatic Orb", inputQuantity: 3, outputQuantity: 1, location: "Act 2+" },
+  { inputName: "Jeweller's Orb", outputName: "Orb of Fusing", inputQuantity: 4, outputQuantity: 1, location: "Act 2+" },
+  { inputName: "Orb of Fusing", outputName: "Orb of Chance", inputQuantity: 1, outputQuantity: 1, location: "Act 3+" },
+  { inputName: "Orb of Chance", outputName: "Orb of Scouring", inputQuantity: 4, outputQuantity: 1, location: "Act 2+" },
+  { inputName: "Orb of Scouring", outputName: "Orb of Regret", inputQuantity: 2, outputQuantity: 1, location: "Act 2+" },
+  { inputName: "Orb of Regret", outputName: "Orb of Alchemy", inputQuantity: 1, outputQuantity: 1, location: "Act 3+" },
+  { inputName: "Blacksmith's Whetstone", outputName: "Armourer's Scrap", inputQuantity: 1, outputQuantity: 1, location: "Act 1+" },
+  { inputName: "Armourer's Scrap", outputName: "Blacksmith's Whetstone", inputQuantity: 3, outputQuantity: 1, location: "Act 2+" },
 ]);
 
-const HARD_MAX_VOLUME_UTILIZATION_PERCENT = 25;
+const ROUTE_TYPE_LABELS = Object.freeze({
+  vendor: "обмен торговца",
+  oil: "улучшение масла",
+  essence: "улучшение эссенции",
+  card: "комплект карт",
+});
 
-const ASSET_BY_KEY = new Map(ALL_ASSETS.map((asset) => [asset.key, asset]));
-const ASSET_ALIASES = new Map();
-
-function normalizedIdentifier(value) {
-  return String(value ?? "").trim().toLowerCase();
+function normalizedName(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .replace(/[’‘]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
-for (const currency of ALL_ASSETS) {
-  const aliases = [
-    currency.key,
-    currency.name,
-    currency.short,
-    currency.metadata,
-    currency.metadata.split("/").at(-1),
-    ...(currency.aliases ?? []),
-  ];
-
-  for (const alias of aliases) {
-    ASSET_ALIASES.set(normalizedIdentifier(alias), currency);
+function finitePositive(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return number;
   }
-}
-
-export function supportedCurrencies() {
-  return CURRENCIES.map((currency) => ({ ...currency }));
-}
-
-export function supportedIntermediateCategories() {
-  return INTERMEDIATE_CATEGORIES.map((category) => ({ ...category }));
-}
-
-export function supportedAssets() {
-  return ALL_ASSETS.map((asset) => ({ ...asset }));
-}
-
-export function resolveCurrency(value) {
-  return ASSET_ALIASES.get(normalizedIdentifier(value)) ?? null;
-}
-
-function normalizeAmountMap(source) {
-  const result = new Map();
-
-  if (!source || typeof source !== "object") return result;
-
-  for (const [rawKey, rawValue] of Object.entries(source)) {
-    const currency = resolveCurrency(rawKey);
-    const value = Number(rawValue);
-
-    if (currency && Number.isFinite(value)) {
-      result.set(currency.key, value);
-    }
-  }
-
-  return result;
-}
-
-function marketCurrencies(market) {
-  const pair = Array.isArray(market?.market_pair)
-    ? market.market_pair
-    : String(market?.market_id ?? "").split("|");
-
-  const resolved = pair.map(resolveCurrency).filter(Boolean);
-
-  if (resolved.length !== 2 || resolved[0].key === resolved[1].key) {
-    return null;
-  }
-
-  return resolved;
-}
-
-function ratioRate(ratioMap, from, to) {
-  const fromRatio = Number(ratioMap.get(from.key));
-  const toRatio = Number(ratioMap.get(to.key));
-
-  if (!(fromRatio > 0) || !(toRatio > 0)) return null;
-  return toRatio / fromRatio;
-}
-
-function directedEdge({
-  from,
-  to,
-  lowRatios,
-  highRatios,
-  volume,
-  marketId,
-}) {
-  const volumeIn = Number(volume.get(from.key) ?? 0);
-  const volumeOut = Number(volume.get(to.key) ?? 0);
-
-  if (!(volumeIn > 0) || !(volumeOut > 0)) return null;
-
-  // Inference from the hourly aggregate:
-  // total output traded / total input traded is the aggregate average
-  // exchange rate for the completed hour.
-  const averageRate = volumeOut / volumeIn;
-
-  if (!(averageRate > 0) || !Number.isFinite(averageRate)) {
-    return null;
-  }
-
-  const extremeRates = [
-    ratioRate(lowRatios, from, to),
-    ratioRate(highRatios, from, to),
-  ].filter((value) => Number.isFinite(value) && value > 0);
-
-  const lowRate = extremeRates.length
-    ? Math.min(...extremeRates)
-    : averageRate;
-
-  const highRate = extremeRates.length
-    ? Math.max(...extremeRates)
-    : averageRate;
-
-  const rangePercent =
-    averageRate > 0
-      ? ((highRate - lowRate) / averageRate) * 100
-      : Number.POSITIVE_INFINITY;
-
-  return {
-    id: `${marketId}:${from.key}->${to.key}`,
-    marketId,
-    from,
-    to,
-    averageRate,
-    lowRate,
-    highRate,
-    spreadPercent: Math.max(0, rangePercent),
-    volumeIn,
-    volumeOut,
-  };
-}
-export function buildDirectedExchangeEdges(markets) {
-  const edges = [];
-  const diagnostics = {
-    received: Array.isArray(markets) ? markets.length : 0,
-    unsupportedPair: 0,
-    zeroVolumeOrRatio: 0,
-    usableMarkets: 0,
-    directedEdges: 0,
-    assetsByCategory: {
-      currency: 0,
-      essence: 0,
-      scarab: 0,
-    },
-  };
-
-  for (const market of Array.isArray(markets) ? markets : []) {
-    const currencies = marketCurrencies(market);
-
-    if (!currencies) {
-      diagnostics.unsupportedPair += 1;
-      continue;
-    }
-
-    const [left, right] = currencies;
-    const volume = normalizeAmountMap(market?.volume_traded);
-    const lowRatios = normalizeAmountMap(market?.lowest_ratio);
-    const highRatios = normalizeAmountMap(market?.highest_ratio);
-    const marketId = String(market?.market_id ?? `${left.key}|${right.key}`);
-
-    const forward = directedEdge({
-      from: left,
-      to: right,
-      lowRatios,
-      highRatios,
-      volume,
-      marketId,
-    });
-
-    const reverse = directedEdge({
-      from: right,
-      to: left,
-      lowRatios,
-      highRatios,
-      volume,
-      marketId,
-    });
-
-    if (!forward || !reverse) {
-      diagnostics.zeroVolumeOrRatio += 1;
-      continue;
-    }
-
-    diagnostics.usableMarkets += 1;
-    edges.push(forward, reverse);
-  }
-
-  diagnostics.directedEdges = edges.length;
-
-  const uniqueAssets = new Map();
-  for (const edge of edges) {
-    uniqueAssets.set(edge.from.key, edge.from);
-    uniqueAssets.set(edge.to.key, edge.to);
-  }
-
-  for (const asset of uniqueAssets.values()) {
-    if (diagnostics.assetsByCategory[asset.category] !== undefined) {
-      diagnostics.assetsByCategory[asset.category] += 1;
-    }
-  }
-
-  return { edges, diagnostics };
+  return Number.NaN;
 }
 
 function finiteNonNegative(value, fallback = 0) {
@@ -567,461 +49,645 @@ function finiteNonNegative(value, fallback = 0) {
   return Number.isFinite(number) && number >= 0 ? number : fallback;
 }
 
-function selectedRate(edge) {
-  return edge.averageRate;
+function integerPositive(value, fallback = 1) {
+  const number = Math.floor(Number(value));
+  return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
-function executeWholeItemTrade(
-  inputAmount,
-  rate,
-  safetyFactor = 1,
-) {
-  const availableInput = Math.floor(Number(inputAmount));
+function itemCategoryKey(category, item) {
+  return `${String(category ?? "unknown")}|${normalizedName(item?.name)}|${String(item?.id ?? "")}`;
+}
 
-  if (
-    !(availableInput > 0) ||
-    !(rate > 0) ||
-    !Number.isFinite(rate)
-  ) {
-    return null;
+function createNode(category, item) {
+  return {
+    key: itemCategoryKey(category, item),
+    category,
+    item,
+    name: String(item?.name ?? ""),
+    icon: String(item?.icon ?? ""),
+  };
+}
+
+function marketIndex(items = []) {
+  const index = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const key = normalizedName(item?.name);
+    if (!key) continue;
+    if (!index.has(key)) index.set(key, []);
+    index.get(key).push(item);
   }
 
-  const protectedInput = Math.floor(
-    availableInput * safetyFactor,
-  );
+  for (const candidates of index.values()) {
+    candidates.sort(
+      (left, right) =>
+        Number(right?.volume ?? 0) - Number(left?.volume ?? 0) ||
+        Number(left?.price ?? Number.POSITIVE_INFINITY) -
+          Number(right?.price ?? Number.POSITIVE_INFINITY),
+    );
+  }
 
-  if (protectedInput < 1) return null;
-
-  const outputAmount = Math.floor(
-    protectedInput * rate + 1e-9,
-  );
-
-  if (outputAmount < 1) return null;
-
-  return {
-    availableInput,
-    protectedInput,
-    spentInput: protectedInput,
-    outputAmount,
-    leftoverInput: Math.max(
-      0,
-      availableInput - protectedInput,
-    ),
-  };
-}
-function cycleRisk(maxSpread, maxUtilization) {
-  if (maxSpread > 100 || maxUtilization > 8) return "high";
-  if (maxSpread > 40 || maxUtilization > 4) return "medium";
-  return "low";
+  return index;
 }
 
-function createCycleRecord({
-  routeKey,
-  startCurrency,
-  first,
-  second,
-  routeEdges,
-  observedCapacities,
-  safeExecutions,
-  utilizationDetails,
-  budget,
-  grossAmounts,
-  safeAmounts,
-  routeMaxSpread,
-  maxUtilization,
-  mode,
-  safetyPercent,
-  maxSpread,
-  maxVolumeUtilization,
+function firstMarketItem(index, name) {
+  return index.get(normalizedName(name))?.[0] ?? null;
+}
+
+function conversionEdge({
+  type,
+  fromCategory,
+  toCategory,
+  fromItem,
+  toItem,
+  inputQuantity,
+  outputQuantity,
+  label,
+  details = "",
 }) {
-  const grossResult = grossAmounts.at(-1);
-  const safeResult = safeAmounts.at(-1);
-  const grossProfit = grossResult - budget;
-  const safeProfit = safeResult - budget;
-  const roi = (safeProfit / budget) * 100;
-
   return {
-    key: routeKey,
-    startCurrency,
-    intermediateCategories: [
-      first.to.category,
-      second.to.category,
-    ],
-    currencies: [
-      startCurrency,
-      first.to,
-      second.to,
-      startCurrency,
-    ],
-    edges: routeEdges.map((edge, index) => {
-      const rate = selectedRate(edge);
-      const execution = safeExecutions[index];
-
-      return {
-        ...edge,
-        chosenRate: rate,
-        safeRate: rate * (1 - safetyPercent / 100),
-        availableInput: execution.availableInput,
-        requiredInput: execution.spentInput,
-        protectedInput: execution.protectedInput,
-        leftoverInput: execution.leftoverInput,
-        resultingAmount: execution.outputAmount,
-        inputUtilizationPercent:
-          utilizationDetails[index].inputPercent,
-        outputUtilizationPercent:
-          utilizationDetails[index].outputPercent,
-        utilizationPercent:
-          utilizationDetails[index].maximumPercent,
-      };
-    }),
-    budget,
-    grossResult,
-    safeResult,
-    grossProfit,
-    safeProfit,
-    roi,
-    maxSpread: routeMaxSpread,
-    maxUtilization,
-    risk: cycleRisk(routeMaxSpread, maxUtilization),
-    mode,
-    safetyPercent,
-    effectiveMaxSpread: maxSpread,
-    effectiveMaxVolumeUtilization: maxVolumeUtilization,
-    hardLimits: {
-      maxSpreadPercent: 0,
-      maxVolumeUtilizationPercent:
-        HARD_MAX_VOLUME_UTILIZATION_PERCENT,
-    },
+    id: `${type}|${itemCategoryKey(fromCategory, fromItem)}>${itemCategoryKey(toCategory, toItem)}|${inputQuantity}:${outputQuantity}`,
+    type,
+    from: createNode(fromCategory, fromItem),
+    to: createNode(toCategory, toItem),
+    inputQuantity: integerPositive(inputQuantity),
+    outputQuantity: integerPositive(outputQuantity),
+    label,
+    details,
   };
 }
 
-function emptySearchDiagnostics() {
+export function routeTypeLabel(type) {
+  return ROUTE_TYPE_LABELS[type] ?? String(type ?? "преобразование");
+}
+
+export function buildGuaranteedConversionEdges(
+  itemsByCategory = {},
+  cardPairs = [],
+) {
+  const edges = [];
+  const counts = { vendor: 0, oil: 0, essence: 0, card: 0 };
+  const currencyIndex = marketIndex(itemsByCategory.currency);
+  const oilIndex = marketIndex(itemsByCategory.oil);
+  const essenceIndex = marketIndex(itemsByCategory.essence);
+
+  for (const recipe of VENDOR_CURRENCY_CONVERSIONS) {
+    const input = firstMarketItem(currencyIndex, recipe.inputName);
+    const output = firstMarketItem(currencyIndex, recipe.outputName);
+    if (!input || !output) continue;
+
+    edges.push(
+      conversionEdge({
+        type: "vendor",
+        fromCategory: "currency",
+        toCategory: "currency",
+        fromItem: input,
+        toItem: output,
+        inputQuantity: recipe.inputQuantity,
+        outputQuantity: recipe.outputQuantity,
+        label: `${recipe.inputQuantity} ${recipe.inputName} → ${recipe.outputQuantity} ${recipe.outputName}`,
+        details: `Покупка у торговца, доступно с ${recipe.location}`,
+      }),
+    );
+    counts.vendor += 1;
+  }
+
+  for (let index = 0; index < OIL_CHAIN.length - 1; index += 1) {
+    const input = firstMarketItem(oilIndex, OIL_CHAIN[index]);
+    const output = firstMarketItem(oilIndex, OIL_CHAIN[index + 1]);
+    if (!input || !output) continue;
+
+    edges.push(
+      conversionEdge({
+        type: "oil",
+        fromCategory: "oil",
+        toCategory: "oil",
+        fromItem: input,
+        toItem: output,
+        inputQuantity: 3,
+        outputQuantity: 1,
+        label: `3 ${input.name} → 1 ${output.name}`,
+        details: "Гарантированное улучшение масел 3:1",
+      }),
+    );
+    counts.oil += 1;
+  }
+
+  const escapedTiers = ESSENCE_TIERS.map((tier) =>
+    tier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
+  const essencePattern = new RegExp(
+    `^(${escapedTiers.join("|")}) Essence of (.+)$`,
+  );
+  const essenceFamilies = new Map();
+
+  for (const item of Array.isArray(itemsByCategory.essence)
+    ? itemsByCategory.essence
+    : []) {
+    const match = String(item?.name ?? "").match(essencePattern);
+    if (!match) continue;
+    const [, tier, family] = match;
+    if (!essenceFamilies.has(family)) essenceFamilies.set(family, new Map());
+    essenceFamilies.get(family).set(tier, item);
+  }
+
+  for (const tierMap of essenceFamilies.values()) {
+    for (let index = 0; index < ESSENCE_TIERS.length - 1; index += 1) {
+      const input = tierMap.get(ESSENCE_TIERS[index]);
+      const output = tierMap.get(ESSENCE_TIERS[index + 1]);
+      if (!input || !output) continue;
+
+      edges.push(
+        conversionEdge({
+          type: "essence",
+          fromCategory: "essence",
+          toCategory: "essence",
+          fromItem: input,
+          toItem: output,
+          inputQuantity: 3,
+          outputQuantity: 1,
+          label: `3 ${input.name} → 1 ${output.name}`,
+          details: "Гарантированное улучшение эссенций 3:1",
+        }),
+      );
+      counts.essence += 1;
+    }
+  }
+
+  for (const pair of Array.isArray(cardPairs) ? cardPairs : []) {
+    const inputQuantity = integerPositive(pair?.ratio, 0);
+    const outputQuantity = integerPositive(pair?.outputQuantity, 0);
+    if (!pair?.input || !pair?.output || !inputQuantity || !outputQuantity) {
+      continue;
+    }
+
+    edges.push(
+      conversionEdge({
+        type: "card",
+        fromCategory: pair.inputCategory ?? "card",
+        toCategory: pair.outputCategory ?? "currency",
+        fromItem: pair.input,
+        toItem: pair.output,
+        inputQuantity,
+        outputQuantity,
+        label: `${inputQuantity} ${pair.input.name} → ${outputQuantity} ${pair.output.name}`,
+        details: pair.rewardDescription
+          ? `Сдача полного комплекта: ${pair.rewardDescription}`
+          : "Сдача полного комплекта гадальных карт",
+      }),
+    );
+    counts.card += 1;
+  }
+
   return {
-    potentialRoutes: 0,
-    technicallyExecutable: 0,
+    edges,
+    counts,
+    total: edges.length,
+  };
+}
+
+function routeBatchQuantities(edges) {
+  if (!edges.length) return null;
+  const cacheKey = edges.map((edge) => edge.id).join(">");
+  if (routeBatchQuantities.cache.has(cacheKey)) {
+    return routeBatchQuantities.cache.get(cacheKey);
+  }
+
+  const maximumInput = Math.min(
+    1_000_000,
+    Math.max(
+      1,
+      edges.reduce(
+        (product, edge) =>
+          product * Math.max(1, integerPositive(edge.inputQuantity)),
+        1,
+      ),
+    ),
+  );
+
+  for (let startQuantity = 1; startQuantity <= maximumInput; startQuantity += 1) {
+    let current = startQuantity;
+    const amounts = [current];
+    let valid = true;
+
+    for (const edge of edges) {
+      if (current % edge.inputQuantity !== 0) {
+        valid = false;
+        break;
+      }
+      current = (current / edge.inputQuantity) * edge.outputQuantity;
+      if (!Number.isSafeInteger(current) || current <= 0) {
+        valid = false;
+        break;
+      }
+      amounts.push(current);
+    }
+
+    if (valid) {
+      const result = {
+        inputQuantity: startQuantity,
+        outputQuantity: current,
+        amounts,
+      };
+      routeBatchQuantities.cache.set(cacheKey, result);
+      return result;
+    }
+  }
+
+  routeBatchQuantities.cache.set(cacheKey, null);
+  return null;
+}
+routeBatchQuantities.cache = new Map();
+
+function rolePrice(item, role, useSecondSource) {
+  const ninja = finitePositive(item?.ninjaPrice, item?.price);
+  const watch = finitePositive(item?.watchPrice);
+  if (!Number.isFinite(ninja)) return Number.NaN;
+  if (!useSecondSource || !Number.isFinite(watch)) return ninja;
+  return role === "input" ? Math.max(ninja, watch) : Math.min(ninja, watch);
+}
+
+function maxFinite(values) {
+  const finite = values.filter(Number.isFinite);
+  return finite.length ? Math.max(...finite) : Number.NaN;
+}
+
+function minFinite(values) {
+  const finite = values.filter(Number.isFinite);
+  return finite.length ? Math.min(...finite) : Number.NaN;
+}
+
+function confidenceScore({
+  bothSources,
+  maxDiscrepancy,
+  cxBoth,
+  maxCxUtilization,
+  minWatchVolume,
+  fixedSteps,
+}) {
+  let score = 35;
+  score += bothSources ? 25 : 0;
+  if (Number.isFinite(maxDiscrepancy)) {
+    if (maxDiscrepancy <= 5) score += 15;
+    else if (maxDiscrepancy <= 10) score += 10;
+    else if (maxDiscrepancy <= 20) score += 4;
+    else score -= 8;
+  }
+  score += cxBoth ? 10 : 0;
+  if (Number.isFinite(maxCxUtilization)) {
+    if (maxCxUtilization <= 5) score += 10;
+    else if (maxCxUtilization <= 15) score += 5;
+  }
+  if (Number.isFinite(minWatchVolume) && minWatchVolume >= 100) score += 5;
+  if (fixedSteps >= 3) score -= 5;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function evaluatePath(path, options) {
+  const budget = finiteNonNegative(options.budget, 0);
+  const buyPremium = Math.max(0, finiteNonNegative(options.buyPremium, 0)) / 100;
+  const sellDiscount = Math.min(
+    100,
+    Math.max(0, finiteNonNegative(options.sellDiscount, 0)),
+  ) / 100;
+  const useSecondSource = options.useSecondSource !== false;
+  const requireConfirmed = Boolean(options.requireConfirmed);
+  const requireGggLiquidity = Boolean(options.requireGggLiquidity);
+  const maxDiscrepancyLimit = finiteNonNegative(options.maxDiscrepancy, 0);
+  const requestedCxUtilization = finiteNonNegative(options.maxCxUtilization, 0);
+  const effectiveCxUtilization = requestedCxUtilization > 0
+    ? Math.min(requestedCxUtilization, HARD_MAX_HOURLY_VOLUME_PERCENT)
+    : HARD_MAX_HOURLY_VOLUME_PERCENT;
+
+  const first = path[0];
+  const last = path.at(-1);
+  const inputItem = first.from.item;
+  const outputItem = last.to.item;
+  const inputUnitPrice = rolePrice(inputItem, "input", useSecondSource);
+  const outputUnitPrice = rolePrice(outputItem, "output", useSecondSource);
+
+  if (!Number.isFinite(inputUnitPrice) || !Number.isFinite(outputUnitPrice)) {
+    return { accepted: false, reason: "missingPrice" };
+  }
+
+  const bothSources =
+    Number(inputItem?.sources) === 2 && Number(outputItem?.sources) === 2;
+  if (requireConfirmed && !bothSources) {
+    return { accepted: false, reason: "unconfirmed" };
+  }
+
+  const maxDiscrepancy = maxFinite([
+    Number(inputItem?.discrepancy),
+    Number(outputItem?.discrepancy),
+  ]);
+  if (
+    maxDiscrepancyLimit > 0 &&
+    Number.isFinite(maxDiscrepancy) &&
+    maxDiscrepancy > maxDiscrepancyLimit
+  ) {
+    return { accepted: false, reason: "discrepancy" };
+  }
+
+  const batch = routeBatchQuantities(path);
+  if (!batch) return { accepted: false, reason: "integerBatch" };
+
+  const costPerBatch =
+    batch.inputQuantity * inputUnitPrice * (1 + buyPremium);
+  const salePerBatch =
+    batch.outputQuantity * outputUnitPrice * (1 - sellDiscount);
+
+  if (!(costPerBatch > 0) || !(salePerBatch >= 0)) {
+    return { accepted: false, reason: "missingPrice" };
+  }
+
+  const operations = budget > 0 ? Math.floor(budget / costPerBatch) : 0;
+  if (operations < 1) {
+    return {
+      accepted: false,
+      reason: "budget",
+      candidate: {
+        requiredBudget: costPerBatch,
+        path,
+        batch,
+      },
+    };
+  }
+
+  const totalCost = operations * costPerBatch;
+  const totalSale = operations * salePerBatch;
+  const leftoverChaos = Math.max(0, budget - totalCost);
+  const finalChaos = leftoverChaos + totalSale;
+  const profit = totalSale - totalCost;
+  const roi = totalCost > 0 ? (profit / totalCost) * 100 : 0;
+
+  const inputQuantity = batch.inputQuantity * operations;
+  const outputQuantity = batch.outputQuantity * operations;
+  const inputCx = inputItem?.cx?.available ? inputItem.cx : null;
+  const outputCx = outputItem?.cx?.available ? outputItem.cx : null;
+  const cxBoth = Boolean(inputCx && outputCx);
+
+  if (requireGggLiquidity && !cxBoth) {
+    return { accepted: false, reason: "missingLiquidity" };
+  }
+
+  const inputUtilization = inputCx?.volume > 0
+    ? (inputQuantity / inputCx.volume) * 100
+    : Number.NaN;
+  const outputUtilization = outputCx?.volume > 0
+    ? (outputQuantity / outputCx.volume) * 100
+    : Number.NaN;
+  const maxCxUtilization = maxFinite([inputUtilization, outputUtilization]);
+
+  if (
+    Number.isFinite(maxCxUtilization) &&
+    maxCxUtilization > effectiveCxUtilization
+  ) {
+    return { accepted: false, reason: "liquidity" };
+  }
+
+  const minWatchVolume = minFinite([
+    Number(inputItem?.watchVolume),
+    Number(outputItem?.watchVolume),
+  ]);
+  const fixedSteps = path.length;
+  const types = [...new Set(path.map((edge) => edge.type))];
+  const routeKey = path.map((edge) => edge.id).join(">");
+  const amounts = batch.amounts.map((amount) => amount * operations);
+  const confidence = confidenceScore({
+    bothSources,
+    maxDiscrepancy,
+    cxBoth,
+    maxCxUtilization,
+    minWatchVolume,
+    fixedSteps,
+  });
+
+  const route = {
+    key: routeKey,
+    path,
+    types,
+    fixedSteps,
+    totalSteps: fixedSteps + 2,
+    inputItem,
+    outputItem,
+    inputUnitPrice,
+    outputUnitPrice,
+    batchInputQuantity: batch.inputQuantity,
+    batchOutputQuantity: batch.outputQuantity,
+    batchAmounts: batch.amounts,
+    operations,
+    amounts,
+    inputQuantity,
+    outputQuantity,
+    costPerBatch,
+    salePerBatch,
+    totalCost,
+    totalSale,
+    leftoverChaos,
+    finalChaos,
+    profit,
+    roi,
+    bothSources,
+    maxDiscrepancy,
+    inputCx,
+    outputCx,
+    cxBoth,
+    inputUtilization,
+    outputUtilization,
+    maxCxUtilization,
+    effectiveCxUtilization,
+    minWatchVolume,
+    confidence,
+  };
+
+  const minProfit = finiteNonNegative(options.minProfit, 0);
+  const minRoi = finiteNonNegative(options.minRoi, 0);
+
+  if (profit <= 0) {
+    return {
+      accepted: false,
+      reason: "noProfit",
+      candidate: {
+        ...route,
+        gapToBreakEven: Math.max(0, -profit),
+      },
+    };
+  }
+  if (profit < minProfit) {
+    return {
+      accepted: false,
+      reason: "minProfit",
+      candidate: {
+        ...route,
+        gapToMinProfit: minProfit - profit,
+      },
+    };
+  }
+  if (roi < minRoi) {
+    return {
+      accepted: false,
+      reason: "minRoi",
+      candidate: {
+        ...route,
+        gapToMinRoi: minRoi - roi,
+      },
+    };
+  }
+
+  return { accepted: true, route };
+}
+
+function shouldSuppressSingleStep(path) {
+  return (
+    path.length === 1 &&
+    ["oil", "essence", "card"].includes(path[0].type)
+  );
+}
+
+function enumeratePaths(edges, options, diagnostics) {
+  const enabledTypes = new Set(
+    Array.isArray(options.enabledTypes)
+      ? options.enabledTypes
+      : ["vendor", "oil", "essence", "card"],
+  );
+  const maximumTotalSteps = Math.max(
+    3,
+    Math.min(5, integerPositive(options.maxTotalSteps, 5)),
+  );
+  const maximumFixedSteps = maximumTotalSteps - 2;
+  const outgoing = new Map();
+
+  for (const edge of edges) {
+    if (!enabledTypes.has(edge.type)) continue;
+    if (!outgoing.has(edge.from.key)) outgoing.set(edge.from.key, []);
+    outgoing.get(edge.from.key).push(edge);
+  }
+
+  const results = [];
+  const seenRoutes = new Set();
+
+  const visit = (path, visitedNodes) => {
+    if (!path.length) return;
+    const key = path.map((edge) => edge.id).join(">");
+
+    if (!seenRoutes.has(key)) {
+      seenRoutes.add(key);
+      diagnostics.generatedRoutes += 1;
+      if (shouldSuppressSingleStep(path)) {
+        diagnostics.rejected.duplicateSingleStep += 1;
+        diagnostics.rejectedTotal += 1;
+      } else {
+        results.push(path);
+      }
+    }
+
+    if (path.length >= maximumFixedSteps) return;
+    const lastNode = path.at(-1).to;
+
+    for (const nextEdge of outgoing.get(lastNode.key) ?? []) {
+      if (visitedNodes.has(nextEdge.to.key)) continue;
+      const nextVisited = new Set(visitedNodes);
+      nextVisited.add(nextEdge.to.key);
+      visit([...path, nextEdge], nextVisited);
+    }
+  };
+
+  for (const edge of edges) {
+    if (!enabledTypes.has(edge.type)) continue;
+    visit([edge], new Set([edge.from.key, edge.to.key]));
+  }
+
+  return results;
+}
+
+function emptyDiagnostics() {
+  return {
+    fixedEdges: 0,
+    generatedRoutes: 0,
+    evaluatedRoutes: 0,
     accepted: 0,
     rejectedTotal: 0,
     rejected: {
-      spread: 0,
-      wholeLot: 0,
+      duplicateSingleStep: 0,
+      missingPrice: 0,
+      integerBatch: 0,
+      budget: 0,
+      unconfirmed: 0,
+      discrepancy: 0,
+      missingLiquidity: 0,
       liquidity: 0,
       noProfit: 0,
       minProfit: 0,
       minRoi: 0,
     },
-    effectiveLimits: {
-      maxSpreadPercent: 0,
-      maxVolumeUtilizationPercent:
-        HARD_MAX_VOLUME_UTILIZATION_PERCENT,
-    },
   };
 }
 
-function sortedCycles(cycles) {
-  return cycles.sort(
+function sortRoutes(routes) {
+  return routes.sort(
     (left, right) =>
-      right.safeProfit - left.safeProfit ||
+      right.profit - left.profit ||
       right.roi - left.roi ||
-      left.maxUtilization - right.maxUtilization,
+      right.confidence - left.confidence,
   );
 }
 
-function sortedNearest(cycles) {
-  return cycles
+function sortNearest(routes) {
+  return routes
     .sort(
       (left, right) =>
-        right.safeProfit - left.safeProfit ||
-        right.safeResult - left.safeResult ||
-        left.maxUtilization - right.maxUtilization,
+        right.profit - left.profit ||
+        right.roi - left.roi ||
+        right.confidence - left.confidence,
     )
     .slice(0, 5);
 }
 
-export function analyzeTriangularCycles(edges, options = {}) {
-  const diagnostics = emptySearchDiagnostics();
-  const cycles = [];
-  const nearestCandidates = [];
-
-  const startCurrency = resolveCurrency(
-    options.startCurrency ?? "chaos-orb",
+export function analyzeGuaranteedChains(
+  itemsByCategory = {},
+  cardPairs = [],
+  options = {},
+) {
+  const diagnostics = emptyDiagnostics();
+  const conversionGraph = buildGuaranteedConversionEdges(
+    itemsByCategory,
+    cardPairs,
   );
+  diagnostics.fixedEdges = conversionGraph.total;
+  const paths = enumeratePaths(conversionGraph.edges, options, diagnostics);
+  const routes = [];
+  const nearest = [];
 
-  const budget = Math.floor(finiteNonNegative(options.budget, 0));
+  for (const path of paths) {
+    diagnostics.evaluatedRoutes += 1;
+    const result = evaluatePath(path, options);
 
-  if (!startCurrency || !(budget > 0)) {
-    return {
-      cycles,
-      nearest: nearestCandidates,
-      diagnostics,
-    };
-  }
-
-  const safetyPercent = Math.min(
-    25,
-    finiteNonNegative(options.safetyPercent, 1),
-  );
-  const safetyFactor = 1 - safetyPercent / 100;
-  const mode =
-    options.mode === "midpoint" ? "midpoint" : "conservative";
-  const minProfit = finiteNonNegative(options.minProfit, 0);
-  const minRoi = finiteNonNegative(options.minRoi, 0);
-
-  const allowedIntermediateCategories = new Set(
-    Array.isArray(options.allowedIntermediateCategories)
-      ? options.allowedIntermediateCategories
-      : ["currency", "essence", "scarab"],
-  );
-
-  if (!allowedIntermediateCategories.size) {
-    return {
-      cycles,
-      nearest: nearestCandidates,
-      diagnostics,
-    };
-  }
-
-  const maxSpread = finiteNonNegative(
-    options.maxSpread,
-    0,
-  );
-
-  const requestedMaxVolumeUtilization = finiteNonNegative(
-    options.maxVolumeUtilization,
-    10,
-  );
-
-  const maxVolumeUtilization =
-    requestedMaxVolumeUtilization > 0
-      ? Math.min(
-          requestedMaxVolumeUtilization,
-          HARD_MAX_VOLUME_UTILIZATION_PERCENT,
-        )
-      : HARD_MAX_VOLUME_UTILIZATION_PERCENT;
-
-  diagnostics.effectiveLimits = {
-    maxSpreadPercent: maxSpread,
-    maxVolumeUtilizationPercent: maxVolumeUtilization,
-  };
-
-  const reject = (reason) => {
-    diagnostics.rejected[reason] += 1;
-    diagnostics.rejectedTotal += 1;
-  };
-
-  const outgoing = new Map();
-
-  for (const edge of Array.isArray(edges) ? edges : []) {
-    if (!outgoing.has(edge.from.key)) {
-      outgoing.set(edge.from.key, []);
-    }
-
-    outgoing.get(edge.from.key).push(edge);
-  }
-
-  const seen = new Set();
-
-  for (const first of outgoing.get(startCurrency.key) ?? []) {
-    if (first.to.key === startCurrency.key) continue;
-
-    if (
-      !allowedIntermediateCategories.has(first.to.category)
-    ) {
+    if (result.accepted) {
+      routes.push(result.route);
+      diagnostics.accepted += 1;
       continue;
     }
 
-    for (const second of outgoing.get(first.to.key) ?? []) {
-      if (
-        second.to.key === startCurrency.key ||
-        second.to.key === first.from.key ||
-        second.to.key === first.to.key
-      ) {
-        continue;
-      }
+    if (diagnostics.rejected[result.reason] === undefined) {
+      diagnostics.rejected[result.reason] = 0;
+    }
+    diagnostics.rejected[result.reason] += 1;
+    diagnostics.rejectedTotal += 1;
 
-      if (
-        !allowedIntermediateCategories.has(second.to.category)
-      ) {
-        continue;
-      }
-
-      const thirdCandidates = (
-        outgoing.get(second.to.key) ?? []
-      ).filter((edge) => edge.to.key === startCurrency.key);
-
-      for (const third of thirdCandidates) {
-        const routeKey = [
-          startCurrency.key,
-          first.to.key,
-          second.to.key,
-          startCurrency.key,
-        ].join(">");
-
-        if (seen.has(routeKey)) continue;
-        seen.add(routeKey);
-
-        diagnostics.potentialRoutes += 1;
-
-        const routeEdges = [first, second, third];
-        const routeMaxSpread = Math.max(
-          ...routeEdges.map((edge) => edge.spreadPercent),
-        );
-
-        if (
-          maxSpread > 0 &&
-          routeMaxSpread > maxSpread
-        ) {
-          reject("spread");
-          continue;
-        }
-
-        const grossAmounts = [budget];
-        const safeAmounts = [budget];
-        const safeExecutions = [];
-
-        let failedReason = null;
-
-        for (const edge of routeEdges) {
-          const rate = selectedRate(edge);
-
-          const grossExecution = executeWholeItemTrade(
-            grossAmounts.at(-1),
-            rate,
-            1,
-          );
-
-          const safeExecution = executeWholeItemTrade(
-            safeAmounts.at(-1),
-            rate,
-            safetyFactor,
-          );
-
-          if (!grossExecution || !safeExecution) {
-            failedReason = "wholeLot";
-            break;
-          }
-
-          safeExecutions.push(safeExecution);
-          grossAmounts.push(grossExecution.outputAmount);
-          safeAmounts.push(safeExecution.outputAmount);
-        }
-
-        if (failedReason) {
-          reject(failedReason);
-          continue;
-        }
-
-        const utilizationDetails = routeEdges.map(
-          (edge, index) => {
-            const execution = safeExecutions[index];
-
-            const inputPercent =
-              edge.volumeIn > 0
-                ? (execution.spentInput / edge.volumeIn) * 100
-                : Number.POSITIVE_INFINITY;
-
-            const outputPercent =
-              edge.volumeOut > 0
-                ? (execution.outputAmount / edge.volumeOut) * 100
-                : Number.POSITIVE_INFINITY;
-
-            return {
-              inputPercent,
-              outputPercent,
-              maximumPercent: Math.max(
-                inputPercent,
-                outputPercent,
-              ),
-            };
-          },
-        );
-
-        const maxUtilization = Math.max(
-          ...utilizationDetails.map(
-            (detail) => detail.maximumPercent,
-          ),
-        );
-
-        if (maxUtilization > maxVolumeUtilization) {
-          reject("liquidity");
-          continue;
-        }
-
-        diagnostics.technicallyExecutable += 1;
-
-        const cycle = createCycleRecord({
-          routeKey,
-          startCurrency,
-          first,
-          second,
-          routeEdges,
-          safeExecutions,
-          utilizationDetails,
-          budget,
-          grossAmounts,
-          safeAmounts,
-          routeMaxSpread,
-          maxUtilization,
-          mode,
-          safetyPercent,
-          maxSpread,
-          maxVolumeUtilization,
-        });
-
-        if (cycle.safeProfit <= 0) {
-          reject("noProfit");
-          nearestCandidates.push({
-            ...cycle,
-            rejectionReason: "noProfit",
-            gapToBreakEven: Math.max(
-              0,
-              budget - cycle.safeResult,
-            ),
-            gapToMinProfit: Math.max(
-              0,
-              minProfit - cycle.safeProfit,
-            ),
-            gapToMinRoi: Math.max(0, minRoi - cycle.roi),
-          });
-          continue;
-        }
-
-        if (cycle.safeProfit < minProfit) {
-          reject("minProfit");
-          nearestCandidates.push({
-            ...cycle,
-            rejectionReason: "minProfit",
-            gapToBreakEven: 0,
-            gapToMinProfit: minProfit - cycle.safeProfit,
-            gapToMinRoi: Math.max(0, minRoi - cycle.roi),
-          });
-          continue;
-        }
-
-        if (cycle.roi < minRoi) {
-          reject("minRoi");
-          nearestCandidates.push({
-            ...cycle,
-            rejectionReason: "minRoi",
-            gapToBreakEven: 0,
-            gapToMinProfit: 0,
-            gapToMinRoi: minRoi - cycle.roi,
-          });
-          continue;
-        }
-
-        diagnostics.accepted += 1;
-        cycles.push(cycle);
-      }
+    if (
+      result.candidate &&
+      ["noProfit", "minProfit", "minRoi"].includes(result.reason)
+    ) {
+      nearest.push({
+        ...result.candidate,
+        rejectionReason: result.reason,
+      });
     }
   }
 
   return {
-    cycles: sortedCycles(cycles),
-    nearest: sortedNearest(nearestCandidates),
+    routes: sortRoutes(routes),
+    nearest: sortNearest(nearest),
     diagnostics,
+    conversionCounts: conversionGraph.counts,
   };
-}
-
-export function findTriangularCycles(edges, options = {}) {
-  return analyzeTriangularCycles(edges, options).cycles;
 }

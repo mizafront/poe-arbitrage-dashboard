@@ -1168,3 +1168,27 @@ table { min-width: 1780px; }
   }
 }
 /* TRIANGULAR_DIAGNOSTICS_V0111_END */
+
+/* GUARANTEED_CHAINS_V012_START */
+.triangle-chain-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.triangle-chain-flags .triangle-category-option {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+
+.triangle-card .triangle-route-categories span:last-child {
+  color: var(--accent);
+}
+
+@media (max-width: 600px) {
+  .triangle-chain-flags {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+/* GUARANTEED_CHAINS_V012_END */
