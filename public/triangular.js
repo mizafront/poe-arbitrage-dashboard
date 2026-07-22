@@ -6,7 +6,7 @@ import {
   routeTypeLabel,
 } from "./triangular-core.js";
 
-const SETTINGS_KEY = "poe-guaranteed-chains:v0.12.0";
+const SETTINGS_KEY = "poe-guaranteed-chains:v0.13.0";
 
 const state = {
   marketData: null,
@@ -18,6 +18,21 @@ const TYPE_OPTIONS = Object.freeze([
     key: "vendor",
     name: "Обмены торговцев",
     description: "Фиксированные курсы NPC",
+  },
+  {
+    key: "shard",
+    name: "Осколки",
+    description: "20 осколков автоматически собираются в целую валюту",
+  },
+  {
+    key: "splinter",
+    name: "Сплинтеры",
+    description: "Сборка эмблем, ключей и специальных предметов",
+  },
+  {
+    key: "stack",
+    name: "Прочие стаки",
+    description: "Другие автоматические сборки, например Scroll Fragment 5:1",
   },
   {
     key: "oil",
@@ -81,8 +96,9 @@ function insertPanel() {
         <h2>Многошаговые цепочки</h2>
         <p class="triangle-intro">
           Поиск маршрутов длиной до пяти шагов: покупка за Chaos,
-          одно или несколько фиксированных преобразований и продажа результата.
-          Чистые рыночные циклы по историческим курсам GGG больше не используются.
+          сборка осколков или сплинтеров, обмены торговцев, рецепты и продажа
+          результата. Чистые рыночные циклы по историческим курсам GGG
+          больше не используются.
         </p>
       </div>
       <button id="triangleRefresh" class="primary-button" type="button">
@@ -157,8 +173,9 @@ function insertPanel() {
 
     <div class="triangle-note">
       Одиночные улучшения масел, эссенций и обычная сдача комплекта карт
-      намеренно исключены: они уже показаны в основной таблице. Здесь остаются
-      обмены торговцев и новые цепочки с двумя-тремя фиксированными шагами.
+      намеренно исключены: они уже показаны в основной таблице. Сборка осколков,
+      сплинтеров и других полных стаков показывается даже одним фиксированным
+      шагом, а также может продолжаться через обмен торговца или другой рецепт.
     </div>
 
     <div class="triangle-metrics">
@@ -584,8 +601,9 @@ function render() {
   const counts = analysis.conversionCounts;
   ui.categorySummary.textContent =
     `Доступно переходов: торговцы ${counts.vendor ?? 0}, ` +
-    `масла ${counts.oil ?? 0}, эссенции ${counts.essence ?? 0}, ` +
-    `карты ${counts.card ?? 0}.`;
+    `осколки ${counts.shard ?? 0}, сплинтеры ${counts.splinter ?? 0}, ` +
+    `прочие стаки ${counts.stack ?? 0}, масла ${counts.oil ?? 0}, ` +
+    `эссенции ${counts.essence ?? 0}, карты ${counts.card ?? 0}.`;
 
   renderDiagnostics(analysis);
 

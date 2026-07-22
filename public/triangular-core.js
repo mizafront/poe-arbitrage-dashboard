@@ -20,8 +20,147 @@ export const VENDOR_CURRENCY_CONVERSIONS = Object.freeze([
   { inputName: "Armourer's Scrap", outputName: "Blacksmith's Whetstone", inputQuantity: 3, outputQuantity: 1, location: "Act 2+" },
 ]);
 
+export const CURRENCY_SHARD_ASSEMBLIES = Object.freeze([
+  {
+    inputNames: ["Transmutation Shard"],
+    outputNames: ["Orb of Transmutation"],
+    inputQuantity: 20,
+  },
+  {
+    inputNames: ["Alteration Shard"],
+    outputNames: ["Orb of Alteration"],
+    inputQuantity: 20,
+  },
+  {
+    inputNames: ["Alchemy Shard"],
+    outputNames: ["Orb of Alchemy"],
+    inputQuantity: 20,
+  },
+  {
+    inputNames: ["Fracturing Shard"],
+    outputNames: ["Fracturing Orb"],
+    inputQuantity: 20,
+  },
+  {
+    inputNames: ["Mirror Shard"],
+    outputNames: ["Mirror of Kalandra"],
+    inputQuantity: 20,
+  },
+
+  // Legacy shards are retained for Standard and other permanent economies.
+  // No edge is created unless both items are present in the selected league.
+  {
+    inputNames: ["Ancient Shard"],
+    outputNames: ["Ancient Orb"],
+    inputQuantity: 20,
+    legacy: true,
+  },
+  {
+    inputNames: ["Annulment Shard"],
+    outputNames: ["Orb of Annulment"],
+    inputQuantity: 20,
+    legacy: true,
+  },
+  {
+    inputNames: ["Binding Shard"],
+    outputNames: ["Orb of Binding"],
+    inputQuantity: 20,
+    legacy: true,
+  },
+  {
+    inputNames: ["Chaos Shard"],
+    outputNames: ["Chaos Orb"],
+    inputQuantity: 20,
+    legacy: true,
+  },
+  {
+    inputNames: ["Engineer's Shard"],
+    outputNames: ["Engineer's Orb"],
+    inputQuantity: 20,
+    legacy: true,
+  },
+  {
+    inputNames: ["Exalted Shard"],
+    outputNames: ["Exalted Orb"],
+    inputQuantity: 20,
+    legacy: true,
+  },
+  {
+    inputNames: ["Harbinger's Shard"],
+    outputNames: ["Harbinger's Orb"],
+    inputQuantity: 20,
+    legacy: true,
+  },
+  {
+    inputNames: ["Horizon Shard"],
+    outputNames: ["Orb of Horizons"],
+    inputQuantity: 20,
+    legacy: true,
+  },
+  {
+    inputNames: ["Regal Shard"],
+    outputNames: ["Regal Orb"],
+    inputQuantity: 20,
+    legacy: true,
+  },
+]);
+
+export const SPLINTER_ASSEMBLIES = Object.freeze([
+  {
+    inputNames: ["Timeless Eternal Empire Splinter"],
+    outputNames: ["Timeless Eternal Emblem"],
+    inputQuantity: 100,
+  },
+  {
+    inputNames: ["Timeless Karui Splinter"],
+    outputNames: ["Timeless Karui Emblem"],
+    inputQuantity: 100,
+  },
+  {
+    inputNames: ["Timeless Maraketh Splinter"],
+    outputNames: ["Timeless Maraketh Emblem"],
+    inputQuantity: 100,
+  },
+  {
+    inputNames: ["Timeless Templar Splinter"],
+    outputNames: ["Timeless Templar Emblem"],
+    inputQuantity: 100,
+  },
+  {
+    inputNames: ["Timeless Vaal Splinter"],
+    outputNames: ["Timeless Vaal Emblem"],
+    inputQuantity: 100,
+  },
+  {
+    inputNames: ["Simulacrum Splinter"],
+    outputNames: ["Simulacrum"],
+    inputQuantity: 300,
+  },
+  {
+    inputNames: ["Crescent Splinter"],
+    outputNames: ["The Maven's Writ", "Maven's Writ"],
+    inputQuantity: 10,
+  },
+  {
+    inputNames: ["Ritual Splinter"],
+    outputNames: ["Ritual Vessel"],
+    inputQuantity: 100,
+  },
+]);
+
+export const STACK_ASSEMBLIES = Object.freeze([
+  {
+    inputNames: ["Scroll Fragment"],
+    outputNames: ["Scroll of Wisdom"],
+    inputQuantity: 5,
+  },
+]);
+
 const ROUTE_TYPE_LABELS = Object.freeze({
   vendor: "обмен торговца",
+  shard: "сборка осколков",
+  splinter: "сборка сплинтеров",
+  stack: "сборка стака",
   oil: "улучшение масла",
   essence: "улучшение эссенции",
   card: "комплект карт",
@@ -93,6 +232,119 @@ function firstMarketItem(index, name) {
   return index.get(normalizedName(name))?.[0] ?? null;
 }
 
+function buildMarketCatalog(itemsByCategory = {}) {
+  const catalog = new Map();
+
+  for (const [category, items] of Object.entries(itemsByCategory)) {
+    for (const item of Array.isArray(items) ? items : []) {
+      const key = normalizedName(item?.name);
+      if (!key) continue;
+      if (!catalog.has(key)) catalog.set(key, []);
+      catalog.get(key).push({
+        category,
+        item,
+      });
+    }
+  }
+
+  for (const candidates of catalog.values()) {
+    candidates.sort(
+      (left, right) =>
+        Number(right.item?.volume ?? 0) -
+          Number(left.item?.volume ?? 0) ||
+        Number(left.item?.price ?? Number.POSITIVE_INFINITY) -
+          Number(right.item?.price ?? Number.POSITIVE_INFINITY),
+    );
+  }
+
+  return catalog;
+}
+
+function firstCatalogEntry(
+  catalog,
+  names,
+  preferredCategories = [],
+) {
+  const aliases = Array.isArray(names) ? names : [names];
+  const preferences = new Map(
+    preferredCategories.map((category, index) => [category, index]),
+  );
+
+  for (const name of aliases) {
+    const candidates = catalog.get(normalizedName(name)) ?? [];
+    if (!candidates.length) continue;
+
+    return [...candidates].sort((left, right) => {
+      const leftPreference = preferences.has(left.category)
+        ? preferences.get(left.category)
+        : Number.POSITIVE_INFINITY;
+      const rightPreference = preferences.has(right.category)
+        ? preferences.get(right.category)
+        : Number.POSITIVE_INFINITY;
+
+      return (
+        leftPreference - rightPreference ||
+        Number(right.item?.volume ?? 0) -
+          Number(left.item?.volume ?? 0)
+      );
+    })[0];
+  }
+
+  return null;
+}
+
+function addCatalogAssemblies({
+  edges,
+  counts,
+  catalog,
+  recipes,
+  type,
+  inputCategories,
+  outputCategories,
+  detailText,
+}) {
+  for (const recipe of recipes) {
+    const input = firstCatalogEntry(
+      catalog,
+      recipe.inputNames,
+      inputCategories,
+    );
+    const output = firstCatalogEntry(
+      catalog,
+      recipe.outputNames,
+      outputCategories,
+    );
+
+    if (!input || !output) continue;
+
+    const inputQuantity = integerPositive(recipe.inputQuantity);
+    const outputQuantity = integerPositive(
+      recipe.outputQuantity,
+      1,
+    );
+
+    edges.push(
+      conversionEdge({
+        type,
+        fromCategory: input.category,
+        toCategory: output.category,
+        fromItem: input.item,
+        toItem: output.item,
+        inputQuantity,
+        outputQuantity,
+        label:
+          `${inputQuantity} ${input.item.name} → ` +
+          `${outputQuantity} ${output.item.name}`,
+        details: recipe.legacy
+          ? `${detailText}. Устаревший тип: используется только при наличии рынка в выбранной лиге`
+          : detailText,
+      }),
+    );
+
+    counts[type] += 1;
+  }
+}
+
 function conversionEdge({
   type,
   fromCategory,
@@ -125,7 +377,16 @@ export function buildGuaranteedConversionEdges(
   cardPairs = [],
 ) {
   const edges = [];
-  const counts = { vendor: 0, oil: 0, essence: 0, card: 0 };
+  const counts = {
+    vendor: 0,
+    shard: 0,
+    splinter: 0,
+    stack: 0,
+    oil: 0,
+    essence: 0,
+    card: 0,
+  };
+  const catalog = buildMarketCatalog(itemsByCategory);
   const currencyIndex = marketIndex(itemsByCategory.currency);
   const oilIndex = marketIndex(itemsByCategory.oil);
   const essenceIndex = marketIndex(itemsByCategory.essence);
@@ -150,6 +411,39 @@ export function buildGuaranteedConversionEdges(
     );
     counts.vendor += 1;
   }
+
+  addCatalogAssemblies({
+    edges,
+    counts,
+    catalog,
+    recipes: CURRENCY_SHARD_ASSEMBLIES,
+    type: "shard",
+    inputCategories: ["currency", "fragment"],
+    outputCategories: ["currency", "fragment"],
+    detailText: "Автоматическая сборка полного стака валютных осколков",
+  });
+
+  addCatalogAssemblies({
+    edges,
+    counts,
+    catalog,
+    recipes: SPLINTER_ASSEMBLIES,
+    type: "splinter",
+    inputCategories: ["fragment", "currency"],
+    outputCategories: ["fragment", "currency"],
+    detailText: "Автоматическая сборка полного стака сплинтеров",
+  });
+
+  addCatalogAssemblies({
+    edges,
+    counts,
+    catalog,
+    recipes: STACK_ASSEMBLIES,
+    type: "stack",
+    inputCategories: ["currency", "fragment"],
+    outputCategories: ["currency", "fragment"],
+    detailText: "Автоматическая сборка полного стака",
+  });
 
   for (let index = 0; index < OIL_CHAIN.length - 1; index += 1) {
     const input = firstMarketItem(oilIndex, OIL_CHAIN[index]);
@@ -547,7 +841,15 @@ function enumeratePaths(edges, options, diagnostics) {
   const enabledTypes = new Set(
     Array.isArray(options.enabledTypes)
       ? options.enabledTypes
-      : ["vendor", "oil", "essence", "card"],
+      : [
+          "vendor",
+          "shard",
+          "splinter",
+          "stack",
+          "oil",
+          "essence",
+          "card",
+        ],
   );
   const maximumTotalSteps = Math.max(
     3,
